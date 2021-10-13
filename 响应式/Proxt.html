@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+  </head>
+  <body>
+    <div id="con"></div>
+
+    <script>
+      // vue data
+      let data = {
+        msg: '',
+        age: '',
+      };
+      // vue instance
+      // first proxy
+      let vm = new Proxy(data, {
+        // target 表示需要代理的对象，这里指的就是 data
+        get(target, key) {
+          return target[key];
+        },
+        set(target, key, newVal) {
+          target[key] = newVal;
+          console.log(newVal);
+          document.querySelector('#con').textContent = target[key];
+        },
+      });
+
+      // 触发更新
+      vm.msg = 'helllo';
+    </script>
+  </body>
+</html>
