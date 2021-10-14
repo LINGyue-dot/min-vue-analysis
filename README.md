@@ -230,7 +230,7 @@ emitter.emit('add', 'some food');
 
 ## vdom and diff
 
-仿写一个 `snabbdom` 
+目的是仿写一个 `snabbdom` ， vue 的响应式中的 diff 算法也是如此 
 
 
 
@@ -300,7 +300,7 @@ emitter.emit('add', 'some food');
 
 简单来说，每个 tag 都被转换为一下的数据结构
 
-```json
+```js
 {
 	"sel":"div", // 选择器
     "data":{ // 携带的数据
@@ -384,19 +384,9 @@ while(旧前<=旧后&&新前<=新后){
 
 
 
-
-
-
-
-
-
 #### 删除的情况
 
 当新节点先遍历完成，说明旧节点需要进行删除，即需要将旧前和旧后之间的节点删除
-
-
-
-
 
 
 
@@ -409,7 +399,7 @@ while(旧前<=旧后&&新前<=新后){
 
 
 
-#### 特殊情况
+#### 特殊情况（移动）
 
 不断遍历当四种策略都无法满足时候（如下），此时只能通过循环去旧节点中查找，若找到该节点，就将此节点设为 undfined ，然后再进行遍历，最终删除旧前和旧后之间的节点
 
@@ -417,25 +407,7 @@ while(旧前<=旧后&&新前<=新后){
 
 那么此时寻找旧中是否有新前的节点，如果有就将其插入到旧前之前，没有的话就新建节点插入到旧前之前
 
-
-
-
-
-### temp
-
-循环查找相等的节点的意思是？
-
 #### 
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -443,27 +415,45 @@ while(旧前<=旧后&&新前<=新后){
 
 ### 主要函数	
 
-* `h() ` 即1生成对应的虚拟节点
-* `patch()` 进行上方传入2个参数的比较流程
+* `patch()` 传入2个 dom 进行比较操作，核心入口函数
 * `patchVnode()` 在 `patch()` 函数中调用用于进行2虚拟节点的比较 
 
-#### h()
+#### patch()
 
+进行流程中的 1 2 ，转换虚拟节点以及是否同一虚拟节点
 
+如果是同一虚拟节点那么将剩下逻辑交给 `patchVnode()`
 
+```js
+/**
+ * 根据传入的2个 node 进行更新操作，修改的最终都是在 oldVnode 上，newVnode 只是用于参考作用，所以最终 return 时候需要将值重新赋值给 newVnode
+ * @param {*} oldVnode
+ * @param {*} newVnode
+ * @returns
+ */
+export function patch(oldVnode, newVnode) {
+  if (!oldVnode.sel) {
+    // 不是 vdom 转为 vdom
+    oldVnode = turntoVnode(oldVnode);
+  }
+  if (!sameVnode(oldVnode, newVnode)) {
+    // 如果 key 和 sel 不同直接替换该元素，即生成新的 dom 元素替换他
+    // 不同虚拟节点直接替换整个
+    const parent = oldVnode.elm.parentNode;
+    const newELm = createElm(newVnode);
+    // 修改真实 dom
+    parent.insertBefore(newELm, oldVnode.elm);
+    parent.removeChild(oldVnode.elm);
+    oldVnode.elm = newELm;
+  } else {
+    // 同一虚拟节点
+    patchVnode(oldVnode, newVnode);
+  }
+  newVnode = oldVnode;
+  return newVnode;
+}
 
-
-
-
-
-
-
-
-#### patch(ov,nv)
-
-负责整个流程，具体实现 12 流程，当2个节点全部转换为虚拟节点的时候进入 `patchVnode()` 中，返回最终的新的虚拟节点 
-
-
+```
 
 
 
@@ -471,9 +461,150 @@ while(旧前<=旧后&&新前<=新后){
 
 进行 345 流程
 
+```js
+
+/**
+ * 同一虚拟节点进行判断更新操作
+ * 通过 newVnode 的数据修改 oldVnode 的数据
+ * @param {*} oldVnode
+ * @param {*} newVnode
+ */
+export default function patchVnode(oldVnode, newVnode) {
+  if (oldVnode === newVnode) {
+    return;
+  }
+  // text 不相同
+  if (oldVnode.text && oldVnode.text !== newVnode.text) {
+    console.log('text different');
+    oldVnode.elm.textContent = newVnode.text;
+  } // 这里没考虑 children 和 text 同时存在的情况
+  // children 进行 diff
+  else if (oldVnode.children && newVnode.children) {
+    // 两者都有 children 时候，进行 diff
+    updateChildren(oldVnode.elm, oldVnode.children, newVnode.children);
+  } else {
+    // 有一方没有 children
+    if (!newVnode.children && oldVnode.children) {
+      // 新节点没有 children
+      oldVnode.elm.innerHTML = '';
+    } else if (!oldVnode.children && newVnode.children) {
+      // 旧节点没有 children 时候
+      // 生成新节点
+      newVnode.children.forEach((child) => {
+        let node = createElm(child);
+        oldVnode.elm.appendChild(node);
+      });
+    }
+  }
+  newVnode.elm = oldVnode.elm;
+}
+
+```
 
 
 
+
+
+#### updateChildren
+
+ 核心 diff 算法
+
+```js
+export default function updateChildren(parentElm, oldList, newList) {
+  // 四指针
+  let oldFront = 0;
+  let oldBack = oldList.length - 1;
+  let newFront = 0;
+  let newBack = newList.length - 1;
+
+  while (oldBack >= oldFront && newBack >= newFront) {
+    // 清楚 undefined 保证执行四种策略
+
+    if (oldList[oldFront] === undefined) {
+      oldFront++;
+    } else if (oldList[oldBack] === undefined) {
+      oldBack--;
+    }
+    // 四种策略
+    else if (sameVnode(newList[newFront], oldList[oldFront])) {
+      console.log('plan 1');
+      // 同一虚拟节点，更新内部
+      patchVnode(oldList[oldFront], newList[newFront]);
+      newFront++;
+      oldFront++;
+    } else if (sameVnode(newList[newBack], oldList[oldBack])) {
+      console.log('plan 2');
+
+      patchVnode(oldList[oldBack], newList[newBack]);
+      newBack--;
+      oldBack--;
+    } else if (sameVnode(newList[newBack], oldList[oldFront])) {
+      console.log('plan 3');
+
+      // 第三种情况 旧前移动到旧后之后
+      patchVnode(oldList[oldFront], newList[newBack]);
+
+      parentElm.insertBefore(
+        oldList[oldFront].elm,
+        oldList[oldBack].elm.nextSibling
+      );
+
+      newBack--;
+      oldFront++;
+    } else if (sameVnode(newList[newFront], oldList[oldBack])) {
+      console.log('plan 4');
+
+      // 第四种情况 旧后移动到旧前之前
+      patchVnode(oldList[oldBack], newList[newFront]);
+      console.log(oldList);
+      console.log(oldList[oldBack], oldList[oldFront]);
+      parentElm.insertBefore(oldList[oldBack].elm, oldList[oldFront].elm);
+      newFront++;
+      oldBack--;
+    } else {
+      console.log('other plan 四种策略都没有命中');
+
+      // 四种策略都没有命中
+
+      // 遍历查找是否存在相同节点
+      let i = oldFront + 1;
+      for (; i <= oldBack; i++) {
+        if (sameVnode(oldList[i], newList[newFront])) {
+          patchVnode(oldList[i], newList[newFront]);
+          // 移动节点 等同与于第三种情况
+          parentElm.insertBefore(oldList[i].elm, oldList[oldFront].elm);
+          // 置空
+          oldList[i] = undefined;
+          newFront++;
+          break;
+        }
+      }
+      // 没有找到节点 新添加节点
+      if (i > oldBack) {
+        const tempNode = createElm(newList[newFront]);
+        parentElm.insertBefore(tempNode, oldList[oldFront].elm);
+        newFront++;
+      }
+    }
+  }
+
+  // 出循环，进行添加或者删除操作
+  if (oldFront <= oldBack) {
+    // 新节点先遍历完，删除节点
+    for (let i = oldFront; i <= oldBack; i++) {
+      if (!oldList[i]) continue;
+      parentElm.removeChild(oldList[i].elm);
+    }
+  } else if (newFront <= newBack) {
+    // 旧节点先遍历完，新增节点
+    for (let i = newFront; i <= newBack; i++) {
+      const tempNode = createElm(newList[i]);
+      parentElm.appendChild(tempNode);
+    }
+  }
+}
+
+```
 
 
 
@@ -485,8 +616,7 @@ while(旧前<=旧后&&新前<=新后){
 
 * `sameVnode` `patch()` 的第一步通过 `sel` `key ` 判断是否同一虚拟节点
 
-* `createElm` 通过传入的 vNode 来生成真实的 dom 节点，children 节点利用递归生成
-* 
+* `createElm` 通过传入的 vNode 来生成真实的 dom 节点，children 节点利用递归生成真实的 dom 节点
 
 
 
@@ -511,4 +641,5 @@ while(旧前<=旧后&&新前<=新后){
 
 
 * https://juejin.cn/post/6990582632270528525#heading-11
+* https://juejin.cn/book/6844733816460804104/section/6844733816549048333
 

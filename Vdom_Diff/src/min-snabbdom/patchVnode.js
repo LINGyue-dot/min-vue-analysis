@@ -2,7 +2,7 @@
  * @Author: qianlong github:https://github.com/LINGyue-dot
  * @Date: 2021-10-13 19:46:31
  * @LastEditors: qianlong github:https://github.com/LINGyue-dot
- * @LastEditTime: 2021-10-14 20:24:41
+ * @LastEditTime: 2021-10-14 20:48:02
  * @Description:
  */
 
@@ -43,6 +43,5 @@ export default function patchVnode(oldVnode, newVnode) {
       });
     }
   }
-
   newVnode.elm = oldVnode.elm;
 }

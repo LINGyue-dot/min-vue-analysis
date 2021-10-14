@@ -2,7 +2,7 @@
  * @Author: qianlong github:https://github.com/LINGyue-dot
  * @Date: 2021-10-13 19:03:17
  * @LastEditors: qianlong github:https://github.com/LINGyue-dot
- * @LastEditTime: 2021-10-14 20:33:39
+ * @LastEditTime: 2021-10-14 20:45:15
  * @Description:
  */
 
@@ -27,7 +27,6 @@ export function patch(oldVnode, newVnode) {
   if (!sameVnode(oldVnode, newVnode)) {
     // 如果 key 和 sel 不同直接替换该元素，即生成新的 dom 元素替换他
     // 不同虚拟节点直接替换整个
-
     const parent = oldVnode.elm.parentNode;
 
     const newELm = createElm(newVnode);
