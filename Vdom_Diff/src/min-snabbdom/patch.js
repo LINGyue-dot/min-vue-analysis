@@ -2,15 +2,22 @@
  * @Author: qianlong github:https://github.com/LINGyue-dot
  * @Date: 2021-10-13 19:03:17
  * @LastEditors: qianlong github:https://github.com/LINGyue-dot
- * @LastEditTime: 2021-10-13 19:40:59
+ * @LastEditTime: 2021-10-14 20:33:39
  * @Description:
  */
 
 import createElm from './createElm';
 import h from './h';
-import { sameVnode } from './utils';
+import patchVnode from './patchVnode';
+import sameVnode from './sameVnode';
 import vnode from './vnode';
 
+/**
+ * 根据传入的2个 node 进行更新操作，修改的最终都是在 oldVnode 上，newVnode 只是用于参考作用，所以最终 return 时候需要将值重新赋值给 newVnode
+ * @param {*} oldVnode
+ * @param {*} newVnode
+ * @returns
+ */
 export function patch(oldVnode, newVnode) {
   if (!oldVnode.sel) {
     // 不是 vdom 转为 vdom
@@ -28,11 +35,12 @@ export function patch(oldVnode, newVnode) {
     // 修改真实 dom
     parent.insertBefore(newELm, oldVnode.elm);
     parent.removeChild(oldVnode.elm);
+    oldVnode.elm = newELm;
   } else {
     // 同一虚拟节点
+    patchVnode(oldVnode, newVnode);
   }
-
-  newVnode.elm = oldVnode.elm;
+  newVnode = oldVnode;
   return newVnode;
 }
 
