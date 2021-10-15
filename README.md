@@ -1,5 +1,11 @@
 # min-vue
 
+## 全流程
+
+![img](https://ustbhuangyi.github.io/vue-analysis/assets/mind.png)
+
+
+
 
 
 ## 总共的几个问题
@@ -234,7 +240,7 @@ emitter.emit('add', 'some food');
 
 
 
-### 是什么
+### vdom 是什么
 
 ```html
 <div class="container">
@@ -313,7 +319,7 @@ emitter.emit('add', 'some food');
 }
 ```
 
-
+之所以需要 vdom 一个是为了复杂项目中提高 dom 操作性能，一个是为了跨平台例如 Weex Node 等，其他平台下的渲染底层不同，所以转为 vdom 后可以自选渲染方法
 
 
 
@@ -626,6 +632,62 @@ export default function updateChildren(parentElm, oldList, newList) {
 
 
 
+# [剖析 Vue.js 内部运行机制](https://juejin.cn/book/6844733705089449991)
+
+## 整体流程
+
+<img src="http://120.27.242.14:9900/uploads/upload_62b31f7e27705827a7c841281f3dce30.png" alt="image-20211015152801313" style="zoom: 67%;" />
+
+## 1. Vue.js 运行机制全局概览
+
+1. 首先 `inti` 中就进进行生命周期 props methods watch computed 等的初始化，同时进行 **为对象设置响应式** 即 `Object.defineProperty` 设置 `getter` 和 `setter` 函数，这2函数用来实现 **[响应式]** **[依赖收集]**
+2. 接下来调用 `$mount` 挂载，如果是运行时编译，即不存在 render function 但是存在 template 时候，需要 **[编译]** ???
+3. 接下来 **[编译]** ，与编译 JS 代码一致，进行三个步骤 `parse` `optimize` `generate` 
+   1. `parse` ：利用正则解析模板中的指令、class、style 等，形成 AST
+   2. `optimize` ：主要是标记 static 静态节点，这是一个优化影响后面的 `patch` 更新操作
+   3. `generate` ：将 AST 代码转换为 render function 字符串的过程，得到 render 的字符串 ???
+4. 经过 **[编译]** 之后，组件中就存在渲染 VNode 所需要的 render function
+5. 剩下的就是响应式核心内容（`setter` -> `watcher` -> `update`  ->  `patch(diff)` ->  `视图更新`）
+   1. 当 render function 被渲染时候，因为要读取需要的对象的值，所以就会触发 `getter` 函数进行 **[依赖收集]** ， **[依赖收集]** 目的是将观察者 Wacther 对象存在在订阅者 Dep 的 subs 中。???
+   2. 修改对象的值的时候，就会触发 `setter`  ，`setter` 会通知之前的  **[依赖收集]** 得到的 Dep 中的每个 Watcher ，告诉值改变需要重新渲染视图，这时 Watcher 就会调用 `update` 来更新视图 （其中涉及 diff 算法）
+
+
+
+## 3. 响应式中的依赖收集
+
+为什么需要？
+
+我们在利用 `Object.defineProperty` 中的 `setter` ，当 `setter` 一旦触发就触发视图更新，但是此时如果修改一个未被引用（未在视图中起作用）的数据时候，此时就不需要触发视图更新调用 `cb()` 函数
+
+所以 Vuejs 引入 **[依赖收集]**，只有在该数据被视图所使用修改的时候才会触发视图更新，这里引入订阅者 Dep
+
+大致流程即：在 `get` 中将 `watcher` 放入对应的 `Dep` 对象中，在 `set` 中再通知自身 `Dep` 对象的全部 `watcher` 
+
+```js
+class Wacther{
+    constructor(){
+        // watcher 挂载到 Dep.targer 上
+        dep.target = this
+    }
+    // 更新视图
+    update(){
+        
+    }
+}
+
+Object.defineProperty(obj,key,{
+	get:()=>{
+        // 添加 wacther
+		dep.addWacther(dep.target)
+        return obj[key]
+    },
+    set:()=>{
+        // 通知 dep 中所有 watcher 进行更新 
+		dep.notify()
+    }
+    }
+})
+```
 
 
 
@@ -636,10 +698,34 @@ export default function updateChildren(parentElm, oldList, newList) {
 
 
 
-## Refrence
+
+
+
+
+
+## temp
+
+* 运行时编译
+
+
+
+# Vue@2.x
+
+
+
+
+
+
+
+
+
+
+
+# Refrence
 
 
 
 * https://juejin.cn/post/6990582632270528525#heading-11
 * https://juejin.cn/book/6844733816460804104/section/6844733816549048333
+* https://ustbhuangyi.github.io/vue-analysis/
 
