@@ -10,8 +10,10 @@
 
 ## 总共的几个问题
 
-1. vnode 如何渲染到真实 dom
-2. nextTick 如何实现，为什么在微任务之后获取到的 dom 就是真实 dom ，按理来说 dom 渲染是在微任务之后，或者 JS 获取的 dom 是真实渲染之后的 dom 还是
+1. Vue 是如何将模板渲染成真实 dom
+2. vnode 如何渲染到真实 dom
+3. nextTick 如何实现，为什么在微任务之后获取到的 dom 就是真实 dom ，按理来说 dom 渲染是在微任务之后，或者 JS 获取的 dom 是真实渲染之后的 dom 还（已解决，转至 剖析 Vuejs 内部运行原理机制的 nexttick 一章）
+4. vue 中的 ui 渲染函数是如何的如何保证遇见渲染函数就先执行后在执行微任务和宏任务，还是 JS 事件循环中的执行机制？
 
 
 
@@ -729,7 +731,7 @@ nextTick 功能：在下次 DOM 更新循环结束之后执行延迟回调。在
 
 即 nextTick 可以获取更新后的 dom
 
-Vuejs 中分别使用 `Promise` `setTimout` 等方式创建微任务/宏任务并将 nextTick 中的回调函数放入，在同步函数全部执行完之后才会去执行。即 netxTick 本质上是在微任务/宏任务中执行，虽然 DOM 渲染是处于微任务之后宏任务之前的但是此时获取到的 dom 是已经是更新之后的 ??? （转全流程2）
+Vuejs 中分别使用 `Promise` `setTimout` 等方式创建微任务/宏任务并将 nextTick 中的回调函数放入，在同步函数全部执行完之后才会去执行。即 netxTick 本质上是在微任务/宏任务中执行，在 nextTick 的回调函数数组中原本就存在 ui 渲染函数，后面用户传入的函数都在其之后。也就是说用户传入的回调函数都在 UI 渲染函数之后**。JS 引擎遇到 UI 渲染函数时候会优先执行 UI 渲染函数后再执行微任务/宏任务**。前面这个结论是为什么呢？因为遇见渲染函数之后回去调用 GUI 线程去进行 dom 更新，此时 JS 线程会被冻结，只有 GUI 线程执行之后才会再执行 JS 代码
 
 <img src="http://120.27.242.14:9900/uploads/upload_84575205dc7decc8527316cfcfc5e464.png" alt="image-20211016103535428"  />
 
@@ -848,7 +850,655 @@ function flushSchedulerQueue(){
 
 # Vue@2.x
 
+由于 `runtime only` 涉及到 webpack 的 `vue-loader` 插件所以不好分析，所以下面涉及纯前端的 runtime + complier 的 Vue 即 `srcipts/config.js` 中的 `web-full-esm-browser-prod` 模式
 
+## 类型检查
+
+Vue@2.x 使用的是 flow 进行类型检查
+
+### flow 与 ts
+
+ts 是 ts file 经过编译之后生成原生的 JS 后再进行编译 JS 文件运行代码
+
+flow 是直接写在 js 文件中通过周边 babel 等工具将其去除类型声明
+
+
+
+### 为什么 vue@2.x 中使用的是 flow
+
+1. Babel 和 Eslint 都有 Flow 插件以及支持语法，又 Vue@2.x 沿用 Vue@1.x 中的工具链迁移成本高
+2. 更加贴近 ES 规范，当不想用 Flow 时候直接使用插件去除
+
+
+
+
+
+
+
+## 整体文件
+
+### src
+
+```text
+src
+├── compiler        # 编译相关 
+├── core            # 核心代码 
+├── platforms       # 不同平台的支持
+├── server          # 服务端渲染
+├── sfc             # .vue 文件解析
+├── shared          # 共享代码
+```
+
+
+
+## 编译
+
+
+
+### Runtime Only vs Runtime + Complier
+
+在使用 vue-cli 时候会让我们选择选哪个
+
+Runtime Only：使用该版本时候通常需要借助如 webapck 的 vue-loader 工具将 `.vue` 文件编译成 JS 即编译成 render 函数，因为是在编译阶段就做了这个事情，所以他只包含编译阶段做的，所以只含运行时的 Vue 代码，所以代码会更轻量，此时的编译过程就是离线做的，在客户端上直接运行即可
+
+Runtime + Complier：如果我们没有预编译，且使用了 template 传入了字符串，则需要在客户端编译模板
+
+
+
+```js
+// 需要 complier
+new Vue({
+	template: '<div>{{hi}}</div>'
+    
+})
+// 不需要
+new Vue({
+    render(h){
+        return h('div',this.hi)
+    }
+})
+```
+
+
+
+## 源码入口
+
+首先我们先找到全局入口的 `import Vue from vue`  这个 vue 在哪
+
+先从 `rollup` 打包的入口打包成的 `runtime + complier` 模式下的入口文件 `src/platforms/web/entry-runtime-with-complier.js`
+
+```js
+import Vue from './runtime/index'
+// ...
+export default Vue
+```
+
+`runtime/index` 
+
+```js
+import Vue from 'core/index'
+// ... 其它配置 检测 devtool 等
+// 
+```
+
+`cors/index`
+
+```js
+import Vue from './instance/index'
+import { initGlobalAPI } from './global-api/index'
+//...
+initGlobalAPI(Vue)
+
+// ... 挂载一些属性
+Object.defineProperty(Vue.prototype, '$isServer', {
+})
+export default Vue
+
+```
+
+`./instance/index`
+
+```js
+import { initMixin } from './init'
+import { stateMixin } from './state'
+import { renderMixin } from './render'
+import { eventsMixin } from './events'
+import { lifecycleMixin } from './lifecycle'
+import { warn } from '../util/index'
+
+function Vue (options) {
+  if (process.env.NODE_ENV !== 'production' &&
+    !(this instanceof Vue)
+  ) {
+    warn('Vue is a constructor and should be called with the `new` keyword')
+  }
+  this._init(options)
+}
+
+initMixin(Vue)
+stateMixin(Vue)
+eventsMixin(Vue)
+lifecycleMixin(Vue)
+renderMixin(Vue)
+export default Vue
+```
+
+在看下在 `cors/index` 的 `initGlobalAPI` 
+
+```js
+/* @flow */
+
+import config from '../config'
+import { initUse } from './use'
+import { initMixin } from './mixin'
+import { initExtend } from './extend'
+import { initAssetRegisters } from './assets'
+import { set, del } from '../observer/index'
+import { ASSET_TYPES } from 'shared/constants'
+import builtInComponents from '../components/index'
+import { observe } from 'core/observer/index'
+
+import {
+  warn,
+  extend,
+  nextTick,
+  mergeOptions,
+  defineReactive
+} from '../util/index'
+
+export function initGlobalAPI (Vue: GlobalAPI) {
+  // config
+  const configDef = {}
+  configDef.get = () => config
+  Object.defineProperty(Vue, 'config', configDef)
+
+  Vue.util = {
+    warn,
+    extend,
+    mergeOptions,
+    defineReactive
+  }
+  // 挂载属性
+  Vue.set = set
+  Vue.delete = del
+  Vue.nextTick = nextTick
+
+  // 2.6 explicit observable API
+  Vue.observable = <T>(obj: T): T => {
+    observe(obj)
+    return obj
+  }
+
+  Vue.options = Object.create(null)
+  ASSET_TYPES.forEach(type => {
+    Vue.options[type + 's'] = Object.create(null)
+  })
+
+  Vue.options._base = Vue
+  extend(Vue.options.components, builtInComponents)
+  // 
+  initUse(Vue)
+  initMixin(Vue)
+  initExtend(Vue)
+  initAssetRegisters(Vue)
+}
+
+```
+
+这里就很清楚看到 Vue 本身就只是一个函数只是通过 `init`  等函数去进行一系列操作
+
+这里随便进去一个 `init` 函数观察是如何对 Vue 函数进行处理的
+
+```
+/* @flow */
+
+import config from '../config'
+
+let uid = 0
+
+export function initMixin (Vue: Class<Component>) {
+  Vue.prototype._init = function (options?: Object) {
+   // ... 
+   }
+}
+```
+
+### 总结
+
+`import Vue from 'vue' ` 本质上就是一个 函数通过 `init` 等函数进行对其原型链进行挂载一系列的属性
+
+
+
+
+
+## 数据驱动
+
+
+
+### 是什么
+
+Vue 的核心思想就是数据驱动，即所有修改视图的操作是通过修改数据来进行的，相对于传统前端的 jQuery 等直接操作 dom 大大简化代码量并且逻辑更加清晰
+
+### 核心问题
+
+Vue 是如何将模板渲染成真实 dom
+
+```html
+<div id="app">{{message}}</div>
+```
+
+```js
+new Vue({
+    el:'#app',
+    data:{
+        message:'hello'
+    }
+})
+```
+
+
+
+### new Vue 做了什么
+
+上方的 vue 的入口函数
+
+`src/core/instance/index.js` 中 `function Vue` 
+
+```js
+import { warn } from '../util/index'
+
+function Vue (options) {
+  if (process.env.NODE_ENV !== 'production' &&
+    !(this instanceof Vue)
+  ) { // 只能通过 new 来调用
+    warn('Vue is a constructor and should be called with the `new` keyword')
+  }
+
+  this._init(options)
+}
+// ...
+export default Vue
+```
+
+#### _init
+
+`_init` 函数在 `src/core/instance/init.js` 中的 `initMixin` 函数中进行定义
+
+```js
+  Vue.prototype._init = function (options?: Object) {
+	// ...
+    // merge options
+    // 合并配置
+    if (options && options._isComponent) {
+      //... init
+    } else {
+      // merge
+    }
+    // expose real self
+    vm._self = vm;
+    initLifecycle(vm); // 初始化生命周期
+    initEvents(vm); // 初始化事件
+    initRender(vm); // 初始化渲染
+    callHook(vm, "beforeCreate"); // 触发生命周期函数
+    initInjections(vm); // resolve injections before data/props
+    initState(vm); // 初始化数据
+    initProvide(vm); // resolve provide after data/props
+    callHook(vm, "created");
+  };
+```
+
+主要进行的就是合并配置、初始化生命周期、触发生命周期钩子函数、初始化事件、初始化渲染、初始化 data props computed watcher 等
+
+
+
+### 实例挂载 $mount
+
+#### 是什么
+
+即将 vue 的 template 最终需要渲染到页面的某个地方，这个渲染到某个地方的过程就是挂载???
+
+#### $mount
+
+`src/platforms/web/entry-runtime-with-compiler.js` 中 `runtime  + complier` 下的 `mount` 函数
+
+```js
+/* @flow */
+// ... import 
+const mount = Vue.prototype.$mount; // 获取 runtime only 下的 mounted
+Vue.prototype.$mount = function (
+  el?: string | Element,
+  hydrating?: boolean
+): Component {
+  el = el && query(el);
+
+  // 限制 el 不能为 html 或者 body tag
+  /* istanbul ignore if */
+  if (el === document.body || el === document.documentElement) {
+    process.env.NODE_ENV !== "production" &&
+      warn(
+        `Do not mount Vue to <html> or <body> - mount to normal elements instead.`
+      );
+    return this;
+  }
+
+  const options = this.$options;
+  // resolve template/el and convert to render function
+  // 如果没有 render 方法 说明存在 complier 过程，就将 template 在线编译为 render 方法
+  if (!options.render) {
+    let template = options.template;
+    // 进行一系列 template 处理获取需要渲染的 template
+    // 通过 template 获取 render 函数
+    if (template) {
+	  // 核心函数通过 template 获取 render 函数
+      const { render, staticRenderFns } = compileToFunctions(
+        template,
+        {
+          outputSourceRange: process.env.NODE_ENV !== "production",
+          shouldDecodeNewlines,
+          shouldDecodeNewlinesForHref,
+          delimiters: options.delimiters,
+          comments: options.comments,
+        },
+        this
+      );
+      options.render = render;
+      options.staticRenderFns = staticRenderFns;
+  }
+  return mount.call(this, el, hydrating);
+};
+```
+
+首先 Vue@2.x 中所有组件模板都是通过 render 函数来进行渲染的，所以不论是 .vue 文件还是 template 最终都转换为 render 方法，如果是 template 的话就是 `runtime + complier` 模式进行在线编译，他是调用 `compileToFunctions` 函数生成 render 函数
+
+这个 `$mount` 函数也就很清楚了，首先限制了不能挂载到根元素，后就是获取需要渲染的 template 最后调用 ` compileToFunctions` 函数生成需要的 `render` 函数，最终执行 `runtime only` 模式下的 `mount` 函数，此时对于 `complier` 操作以及结束后面内容与 `runtime only` 一致
+
+
+
+`runtime only `下的 `mount` 此时的 `src/platform/web/runtime/index.js`
+
+```js
+// public mount method
+Vue.prototype.$mount = function (
+  el?: string | Element,
+  hydrating?: boolean // 服务端渲染参数不用理会
+): Component {
+  el = el && inBrowser ? query(el) : undefined
+  return mountComponent(this, el, hydrating)
+}
+```
+
+```js
+export function mountComponent(
+  vm: Component,
+  el: ?Element,
+  hydrating?: boolean
+): Component {
+  vm.$el = el;
+  // 没有 render 处理
+  callHook(vm, "beforeMount");
+
+  let updateComponent;
+  /* istanbul ignore if */
+  if (process.env.NODE_ENV !== "production" && config.performance && mark) {
+    updateComponent = () => {
+      // ...
+      vm._update(vnode, hydrating);
+    };
+  } else {
+    updateComponent = () => {
+      // 先调用 _render 生成 vNode 调用 _update 函数更新 dom
+      vm._update(vm._render(), hydrating);
+    };
+  }
+
+  // Watcher 初始化时候会执行回调函数，同时传入 vm 当 vm 中的数据发生改变时候也会执行回调函数
+  new Watcher(
+    vm,
+    updateComponent,
+    noop,
+    {
+      before() {
+        // 如果 vm._isMounted true 说明实例已经挂载
+        if (vm._isMounted && !vm._isDestroyed) {
+          callHook(vm, "beforeUpdate");
+        }
+      },
+    },
+    true /* isRenderWatcher */
+  );
+
+  // vm.$vnode 表示 Vue 实例的父虚拟节点，如果为 null 表示当前是根 Vue 实例 
+  if (vm.$vnode == null) {
+    vm._isMounted = true;
+    callHook(vm, "mounted");
+  }
+  return vm;
+}
+```
+
+`mountComponent` 函数主要涉及到触发生命周期钩子函数，核心是创建一个 Watcher 对象，同时传入核心更新组件的方法 `updateComponent` ，函数调用时机都委托给 Watcher ，而核心的 `updateComponent` 函数，调用 `_update` 并传入 `_render` 生成的虚拟 dom 。这里就涉及到了组件的虚拟 dom 以及组件更新是如何生成进行的。
+
+
+
+#### 总结
+
+挂载本质上就是生成对应的 render 函数再初始化组件启动监听器
+
+
+
+### _render
+
+#### 是什么
+
+如上分析， `_render` 通过对应的实例 `vm` 生成了对应的虚拟 dom
+
+#### _render()
+
+`src/instance/render` 
+
+```js
+Vue.prototype._render = function (): VNode {
+    const vm: Component = this
+    const { render, _parentVnode } = vm.$options
+
+
+    // set parent vnode. this allows render functions to have access
+    // to the data on the placeholder node.
+    vm.$vnode = _parentVnode
+    // render self
+    let vnode
+    try {
+      currentRenderingInstance = vm
+      // 调用 render 函数
+      vnode = render.call(vm._renderProxy, vm.$createElement)
+    } catch (e) {
+      // ...
+    } finally {
+      currentRenderingInstance = null
+    }
+    // if the returned array contains only a single node, allow it
+    if (Array.isArray(vnode) && vnode.length === 1) {
+      vnode = vnode[0]
+    }
+    // return empty vnode in case the render function errored out
+    // 返回空虚拟节点处理
+    if (!(vnode instanceof VNode)) {
+      vnode = createEmptyVNode()
+    }
+    // set parent
+    vnode.parent = _parentVnode
+    return vnode
+  }
+```
+
+函数和核心就是调用了 `render` 函数，同时将  `vm.$createElement` 方法传入，这个 vnode 本质上 `vm.$createElement` 函数生成的
+
+vdom （参照上方），Vue 其中的 vdom 也是参照 snabbdom 并添加上一些额外属性
+
+
+
+### createElement
+
+#### createElement()
+
+`src/core/vdom/create-element.js`
+
+```js
+export function createElement (
+  context: Component,
+  tag: any,
+  data: any,
+  children: any,
+  normalizationType: any,
+  alwaysNormalize: boolean
+): VNode | Array<VNode> {
+  if (Array.isArray(data) || isPrimitive(data)) {
+    normalizationType = children
+    children = data
+    data = undefined
+  }
+  if (isTrue(alwaysNormalize)) {
+    normalizationType = ALWAYS_NORMALIZE
+  }
+  return _createElement(context, tag, data, children, normalizationType)
+}
+```
+
+本质上只是将传入的参数处理调用 `_createElement` 
+
+#### _createElement()
+
+```js
+export function _createElement(
+  context: Component, // 上下文环境
+  tag?: string | Class<Component> | Function | Object, // 标签
+  data?: VNodeData, // vnode 的数据
+  children?: any, // 子节点
+  normalizationType?: number // 子节点规范类型，根据 render 函数是编译生成还是用户手写
+): VNode | Array<VNode> {
+  if (isDef(data) && isDef((data: any).__ob__)) {
+    // 传入响应式的数据对象
+    process.env.NODE_ENV !== "production" &&
+      warn(
+        `Avoid using observed data object as vnode data:`
+      );
+    return createEmptyVNode();
+  }
+
+  // warn against non-primitive key
+  // 警告非基本类型作为 key
+
+  // support single function children as default scoped slot
+	
+  // 根据不同 normalizationType 调用不同方法生成不同 children
+  if (normalizationType === ALWAYS_NORMALIZE) {
+    children = normalizeChildren(children);
+  } else if (normalizationType === SIMPLE_NORMALIZE) {
+    children = simpleNormalizeChildren(children);
+  }
+  let vnode, ns;
+  if (typeof tag === "string") {
+    let Ctor;
+    ns = (context.$vnode && context.$vnode.ns) || config.getTagNamespace(tag);
+    if (config.isReservedTag(tag)) {
+      // 如果是内置的节点直接创建 vnode
+      // platform built-in elements
+      if (
+        process.env.NODE_ENV !== "production" &&
+        isDef(data) &&
+        isDef(data.nativeOn) &&
+        data.tag !== "component"
+      ) {
+        warn(
+          `The .native modifier for v-on is only valid on components but it was used on <${tag}>.`,
+          context
+        );
+      }
+      vnode = new VNode(
+        config.parsePlatformTagName(tag),
+        data,
+        children,
+        undefined,
+        undefined,
+        context
+      );
+    } else if (
+      (!data || !data.pre) &&
+      isDef((Ctor = resolveAsset(context.$options, "components", tag)))
+    ) {
+      // 如果是已经注册的组件名，创建一个组件类型的 vnode
+      // component
+      vnode = createComponent(Ctor, data, context, children, tag);
+    } else { 
+      // 如果是未注册的组件名就创建一个未知标签的 vnode 节点
+      // unknown or unlisted namespaced elements
+      // check at runtime because it may get assigned a namespace when its
+      // parent normalizes children
+      // 生成 vnode
+      vnode = new VNode(tag, data, children, undefined, undefined, context);
+    }
+  } else {
+    // tag 为 component 类型
+    // direct component options / constructor
+    vnode = createComponent(tag, data, context, children);
+  }
+  if (Array.isArray(vnode)) {
+    return vnode;
+  } else if (isDef(vnode)) {
+    if (isDef(ns)) applyNS(vnode, ns);
+    if (isDef(data)) registerDeepBindings(data);
+    return vnode;
+  } else {
+    return createEmptyVNode();
+  }
+}
+```
+
+`_createElement` 函数主要：根据传入的类型调用 `normalizeChildren`  `simpleNormalizeChildren` 生成 children 的 vnode
+
+接下来就做一系列的 tag 判断，string 的话判断是否内置节点，是否已注册的组件名， component 的话就创建组件类型的 vnode（本质还是 vnode ）
+
+
+
+#### simpleNormalizeChildren
+
+```js
+// render 函数是编译生成的即 runtime + complier 模式
+// 这时编译生成的 children 已经是 vnode 类型
+// 但是唯一例外是函数式组件返回的是一个数组而不是根节点就将该数组返回
+// ex [[]] ，需要返回的是深度只有一层的数组
+export function simpleNormalizeChildren(children: any) {
+  for (let i = 0; i < children.length; i++) {
+    if (Array.isArray(children[i])) {
+      return Array.prototype.concat.apply([], children);
+    }
+  }
+  return children;
+}
+```
+
+
+
+#### normalizeChildren
+
+```js
+// render 函数是用户手写即 runtime only
+// 1.当 children 只有一个节点时候，Vue 允许用户将 children 写成基本类型，这时会调用 createTextVNode 创建文本节点 VNode
+// 2.当编译 slot 、v-for 时候会产生嵌套数组时候，就调用 normalizeArrayChildren
+export function normalizeChildren(children: any): ?Array<VNode> {
+  return isPrimitive(children) // 基本类型
+    ? [createTextVNode(children)]
+    : Array.isArray(children)
+    ? normalizeArrayChildren(children)
+    : undefined;
+}
+```
+
+
+
+#### 总结
+
+`render ` 函数主要功能是将传入的节点转换为 vnode ，主要进行的处理一个是对 children 进行转换成 vnode 一个就是对自身进行转换 vnode
 
 
 
@@ -865,4 +1515,5 @@ function flushSchedulerQueue(){
 * https://juejin.cn/post/6990582632270528525#heading-11
 * https://juejin.cn/book/6844733816460804104/section/6844733816549048333
 * https://ustbhuangyi.github.io/vue-analysis/
+* https://www.zhihu.com/question/46397274/answer/101193678
 
