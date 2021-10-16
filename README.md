@@ -11,7 +11,7 @@
 ## 总共的几个问题
 
 1. vnode 如何渲染到真实 dom
-2. 
+2. nextTick 如何实现，为什么在微任务之后获取到的 dom 就是真实 dom ，按理来说 dom 渲染是在微任务之后，或者 JS 获取的 dom 是真实渲染之后的 dom 还是
 
 
 
@@ -86,6 +86,27 @@
       // 触发响应式
       vm.msg = 'init';
 ```
+
+`代理` ：即我们本来只能通过 app._data.text 触发响应式，现在我们代理成通过 app.text 触发，本质就是代理提升，将原本需要给 app._data 属性代理直接代理到 app 上 
+
+```js
+_proxy.call(this,options.data)
+function _proxy(data){
+    const that = this
+    Object.keys(data).forEach(key=>{
+        Object.defineProperty(that,key,{
+            get:(){
+                return that._data[key]
+            },
+            set:(val){
+                that._data[key] = val
+            }
+        })
+    })
+}
+```
+
+
 
 
 
@@ -665,13 +686,16 @@ export default function updateChildren(parentElm, oldList, newList) {
 
 ```js
 class Wacther{
-    constructor(){
+    constructor(dep){
         // watcher 挂载到 Dep.targer 上
         dep.target = this
     }
-    // 更新视图
+    // 更新数据调用 nextTick 中的回调
     update(){
         
+    }
+    // 调用 patch 函数执行 dom 更新操作
+    run(){
     }
 }
 
@@ -683,11 +707,124 @@ Object.defineProperty(obj,key,{
     },
     set:()=>{
         // 通知 dep 中所有 watcher 进行更新 
-		dep.notify()
-    }
+		dep.notify()	
+    	}
     }
 })
 ```
+
+
+
+
+
+
+
+## 7. 异步更新以及 nextTick
+
+由于异步更新操作需要涉及到 nextTick
+
+### **nextTick**
+
+nextTick 功能：在下次 DOM 更新循环结束之后执行延迟回调。在修改数据之后立即使用这个方法，获取更新后的 DOM。
+
+即 nextTick 可以获取更新后的 dom
+
+Vuejs 中分别使用 `Promise` `setTimout` 等方式创建微任务/宏任务并将 nextTick 中的回调函数放入，在同步函数全部执行完之后才会去执行。即 netxTick 本质上是在微任务/宏任务中执行，虽然 DOM 渲染是处于微任务之后宏任务之前的但是此时获取到的 dom 是已经是更新之后的 ??? （转全流程2）
+
+<img src="http://120.27.242.14:9900/uploads/upload_84575205dc7decc8527316cfcfc5e464.png" alt="image-20211016103535428"  />
+
+```js
+let pending = false // 等待标志位
+let callbacks = []
+function nextTick(cb){
+    callbacks.push(cb)
+ 	    if(!pending){
+        pending = true
+        // 微任务宏任务
+        setTimeout(flushCallbacks,0)
+    }
+}
+// 执行所有回调
+function flushCallbacks(){
+    pending = false
+    callbacks.forEach(fn=>fn())
+}
+```
+
+
+
+
+
+
+
+### 异步更新
+
+**为什么需要异步更新**
+
+当触发某个事件时候，事件多次修改值，那么此时值一直变化，那么如果修改的同时也一直去渲染视图更新 dom ，资源消耗就非常恐怖
+
+**如何进行异步更新**
+
+ queue 中不能有相同的 watcher ，也就是批量改变数据最终改变视图并渲染也就一次，所以 wacther 对象中需要存储 id 以是否相同 wacther 区分。）
+
+每次触发 `setter` 时候，将对应的 watcher push 到 队列中，队列通过 watcher.id 保证 watcher 中不存在相同 watcher ，队列每添加一个 watcher 后就会触发 nextTick ，nextTick 暂时不执行将其收集到的 watcher 放入数组中，等到 dom 渲染完成之后在执行这些 `watcher.run()` （ nextTick 原理）???
+
+```js
+class Watcher{
+    constructor(){
+        this.id = ++uid
+    }
+    update(){
+        // 触发 nextTick
+        console.log(this.id+' update')
+        queueWacther(this) // 将自身添加到 queue 中
+    }
+    run(){
+        // 用来触发 patch 即 dom 更新
+        patch()
+    }
+}
+
+let has = {}
+let queue = []
+let waiting = false // 标志位，表明是否已经向 nextTick 中传递了 flushSchedulerQueue
+// watcher queue
+function queueWacther(watcher){
+    if(has[watcher.id] === null){
+        // 说明 queue 中不存在该 wacther
+        has[watcher.id] = true
+        queue.push(watcher)
+        if(!waiting){
+            waiting = true
+            nextTick(flushSchedulerQueue)
+        }
+    }
+}
+
+// 执行 watcher 队列
+function flushSchedulerQueue(){
+    let watcher,id
+    queue.forEach(item=>{
+        watcher = item
+        id = item.id
+        has[id] = null
+        watcher.run()
+    })
+    waiting = false
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
