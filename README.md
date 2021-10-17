@@ -13,7 +13,9 @@
 1. Vue 是如何将模板渲染成真实 dom
 2. vnode 如何渲染到真实 dom
 3. nextTick 如何实现，为什么在微任务之后获取到的 dom 就是真实 dom ，按理来说 dom 渲染是在微任务之后，或者 JS 获取的 dom 是真实渲染之后的 dom 还（已解决，转至 剖析 Vuejs 内部运行原理机制的 nexttick 一章）
-4. vue 中的 ui 渲染函数是如何的如何保证遇见渲染函数就先执行后在执行微任务和宏任务，还是 JS 事件循环中的执行机制？
+4. vue 中的 ui 渲染函数是如何的如何保证遇见渲染函数就先执行后在执行微任务和宏任务，还是 JS 事件循环中的执行机制？（基本解决，GUI 线程和 JS 线程互斥）
+5. `complier` 生成的 `render` 函数最终在哪调用？
+6. 
 
 
 
@@ -1147,6 +1149,10 @@ export default Vue
   };
 ```
 
+
+
+#### 总结
+
 主要进行的就是合并配置、初始化生命周期、触发生命周期钩子函数、初始化事件、初始化渲染、初始化 data props computed watcher 等
 
 
@@ -1227,6 +1233,8 @@ Vue.prototype.$mount = function (
 }
 ```
 
+`core/instance/lifecycle`
+
 ```js
 export function mountComponent(
   vm: Component,
@@ -1241,10 +1249,11 @@ export function mountComponent(
   /* istanbul ignore if */
   if (process.env.NODE_ENV !== "production" && config.performance && mark) {
     updateComponent = () => {
-      // ...
+      // 调用 _update 函数更新 dom
       vm._update(vnode, hydrating);
     };
-  } else {
+  } else 
+    // init
     updateComponent = () => {
       // 先调用 _render 生成 vNode 调用 _update 函数更新 dom
       vm._update(vm._render(), hydrating);
@@ -1282,7 +1291,7 @@ export function mountComponent(
 
 #### 总结
 
-挂载本质上就是生成对应的 render 函数再初始化组件启动监听器
+本质上就进行了将 `runtime + complier` 的 template 转换为 `render ` 函数而 `runtime only` 模式下本身就存在 `render` 函数，这时初始化组件并启动监听器监听数据变化。
 
 
 
@@ -1387,6 +1396,7 @@ export function _createElement(
 
   // warn against non-primitive key
   // 警告非基本类型作为 key
+  // ...
 
   // support single function children as default scoped slot
 	
@@ -1402,18 +1412,9 @@ export function _createElement(
     ns = (context.$vnode && context.$vnode.ns) || config.getTagNamespace(tag);
     if (config.isReservedTag(tag)) {
       // 如果是内置的节点直接创建 vnode
-      // platform built-in elements
-      if (
-        process.env.NODE_ENV !== "production" &&
-        isDef(data) &&
-        isDef(data.nativeOn) &&
-        data.tag !== "component"
-      ) {
-        warn(
-          `The .native modifier for v-on is only valid on components but it was used on <${tag}>.`,
-          context
-        );
-      }
+      // 部分警告处理...
+      
+      //
       vnode = new VNode(
         config.parsePlatformTagName(tag),
         data,
@@ -1502,7 +1503,287 @@ export function normalizeChildren(children: any): ?Array<VNode> {
 
 
 
+### _update
 
+`src/core/instance/lifecycle` 
+
+```js
+// update 函数 在初始化时候调用或者在数据更新时候调用
+ // 核心就是调用 vm.__patch__
+  Vue.prototype._update = function (vnode: VNode, hydrating?: boolean) {
+    const vm: Component = this;
+    const prevEl = vm.$el;
+    const prevVnode = vm._vnode;
+    const restoreActiveInstance = setActiveInstance(vm);
+    vm._vnode = vnode;
+    if (!prevVnode) {
+      // initial render
+      // 核心函数
+      vm.$el = vm.__patch__(vm.$el, vnode, hydrating, false /* removeOnly */);
+    } else {
+      // updates
+      vm.$el = vm.__patch__(prevVnode, vnode);
+    }
+    // ...
+  };
+```
+
+#### vm.\__patch__
+
+`src/platforms/web/runtime/index.js`
+
+```js
+// 在浏览器的话就指向 patch ，服务端渲染时候没有真实的 dom 就不需要将 vdom 转换为 dom
+// install platform patch function
+Vue.prototype.__patch__ = inBrowser ? patch : noop;
+```
+
+
+
+#### patch
+
+`src/platforms/web/runtime/patch.js`
+
+```js
+// nodeOps 封装了一系列的 dom 操作方法
+// modules 定义了一些模块的钩子函数实现
+export const patch: Function = createPatchFunction({ nodeOps, modules })
+```
+
+这里的 `patch` 主要功能就是渲染 vdom 所以 `patch`是平台相关的，每个平台实现不同，对 DOM 的属性模块创建以及更新也不同，因此每个平台都有自己的 `nodeOps` 和 `modules` 他们的代码都在 `src/platforms` 下
+
+而不同平台的 `patch` 的主要逻辑部分是相同的，这个公共部分内容放在 `core` 目录下
+
+
+
+#### createPatchFunction
+
+`core/vdom/patch` 这个函数是非常长的，其中包含非常多的辅助函数最终返回一个 `patch` 函数
+
+这里暂时只分析 `patch` 函数中 Vue 实例初始化情况即传入的是真实 dom
+
+```js
+        if (isRealElement) {
+          // init ：是真实 dom
+		  // ...
+          // init ：通过 emptyNodeAt 将真实 dom 转换为 vnode 对象
+          oldVnode = emptyNodeAt(oldVnode);
+        }
+        // replacing existing element
+        const oldElm = oldVnode.elm;
+        const parentElm = nodeOps.parentNode(oldElm);
+
+        // create new node
+        createElm(
+          vnode,
+          insertedVnodeQueue,
+          oldElm._leaveCb ? null : parentElm,
+          nodeOps.nextSibling(oldElm)
+        );
+
+```
+
+
+
+主要逻辑就是通过 `emptyNodeAt ` 创建一个旧的 vdom ，最后通过 `createElm` 的方法通过虚拟节点创建真实的 DOM 并插入到他的父元素
+
+
+
+#### createElm
+
+作用：通过传入的 vdom 创建真实的 DOM 并插入到他的父元素中
+
+```js
+ /** 通过传入的 vdom 生成真实 dom 并插入父元素中
+   *
+   * @param {*} vnode
+   * @param {*} insertedVnodeQueue
+   * @param {*} parentElm
+   * @param {*} refElm
+   * @param {*} nested
+   * @param {*} ownerArray
+   * @param {*} index
+   * @returns
+   */
+  function createElm(
+    vnode,
+    insertedVnodeQueue,
+    parentElm,
+    refElm,
+    nested,
+    ownerArray,
+    index
+  ) {
+    if (isDef(vnode.elm) && isDef(ownerArray)) {
+      // 当前的 vnode 被上个渲染函数所使用如果直接修改可能会造成渲染问题，所以 clone
+      vnode = ownerArray[index] = cloneVNode(vnode);
+    }
+
+    vnode.isRootInsert = !nested; // for transition enter check
+    // 尝试创建子组件
+    if (createComponent(vnode, insertedVnodeQueue, parentElm, refElm)) {
+      return;
+    }
+
+    const data = vnode.data;
+    const children = vnode.children;
+    const tag = vnode.tag;
+    // vnode 是否包含 tag
+    if (isDef(tag)) {
+      if (process.env.NODE_ENV !== "production") {
+        // ...
+        // 检验是否合法标签
+        if (isUnknownElement(vnode, creatingElmInVPre)) {
+			// ...
+        }
+      }
+
+      // 调用平台的 DOM 操作创建一个占位符元素
+      vnode.elm = vnode.ns
+        ? nodeOps.createElementNS(vnode.ns, tag)
+        : nodeOps.createElement(tag, vnode);
+      setScope(vnode);
+
+      /* istanbul ignore if */
+      if (__WEEX__) {
+		// ... weex platform
+      } else {
+        // 创建 children
+        createChildren(vnode, children, insertedVnodeQueue);
+        if (isDef(data)) {
+          // 触发所有 create 钩子函数并将 vnode push 到 insertedVnodeQueue
+          invokeCreateHooks(vnode, insertedVnodeQueue);
+        }
+        // 由于是深度优先递归所以子元素优先调用 insert，插入顺序就是先子后父
+        insert(parentElm, vnode.elm, refElm);
+      }
+      else if (isTrue(vnode.isComment)) {
+      // 如果不含 tag 那么可能是一个注释或者纯文本
+      vnode.elm = nodeOps.createComment(vnode.text);
+      insert(parentElm, vnode.elm, refElm);
+    } else {
+      // 纯文本
+      vnode.elm = nodeOps.createTextNode(vnode.text);
+      insert(parentElm, vnode.elm, refElm);
+    }
+  }
+```
+
+`createElm` 首先进行非生产模式下的 tag 检查，后调用占位符，后调用 `createChildren` 生产子元素，最后利用 `insert` 插入到父元素中完成渲染，如果不含 tag 那么可能是注释或者纯文本调用相应的函数直接创建
+
+#### createChildren
+
+`createChildren`  深度有限递归创建子节点
+
+```js
+  function createChildren(vnode, children, insertedVnodeQueue) {
+    if (Array.isArray(children)) {
+      if (process.env.NODE_ENV !== "production") {
+        checkDuplicateKeys(children);
+      }
+      // 深度有限遍历递归创建节点
+      for (let i = 0; i < children.length; ++i) {
+        createElm(
+          children[i],
+          insertedVnodeQueue,
+          vnode.elm, // 父元素节点传入
+          null,
+          true,
+          children,
+          i
+        );
+      }
+    } else if (isPrimitive(vnode.text)) {
+      nodeOps.appendChild(
+        vnode.elm,
+        nodeOps.createTextNode(String(vnode.text))
+      );
+    }
+  }
+```
+
+
+
+
+
+#### invokeCreateHooks
+
+```js
+  function invokeCreateHooks(vnode, insertedVnodeQueue) {
+    for (let i = 0; i < cbs.create.length; ++i) {
+      // 执行 create 钩子函数
+      cbs.create[i](emptyNode, vnode);
+    }
+    i = vnode.data.hook; // Reuse variable
+    if (isDef(i)) {
+      if (isDef(i.create)) i.create(emptyNode, vnode);
+      // 将 vnode push 到 insertedVnodeQueue 中
+      if (isDef(i.insert)) insertedVnodeQueue.push(vnode);
+    }
+  }
+```
+
+
+
+#### insert
+
+```js
+  function insert(parent, elm, ref) {
+    if (isDef(parent)) {
+      if (isDef(ref)) {
+        if (nodeOps.parentNode(ref) === parent) {
+          nodeOps.insertBefore(parent, elm, ref);
+        }
+      } else {
+        nodeOps.appendChild(parent, elm);
+      }
+    }
+  }
+// nodeOps
+```
+
+nodeOps 在 `src/platforms/web/runtime/node-ops.js`
+
+```js
+export function insertBefore (parentNode: Node, newNode: Node, referenceNode: Node) {
+  parentNode.insertBefore(newNode, referenceNode)
+}
+
+export function appendChild (node: Node, child: Node) {
+  node.appendChild(child)
+}
+```
+
+所以 `insert` 本质也是调用原生的 `insertBefore` 以及 `appendChild` 方法
+
+
+
+#### 总结
+
+`_update` 函数进行初始化 dom 操作以及更新 dom 操作，主要分析了初始化操作，对于传入的 dom 节点将其转为 vdom ，最后通过深度遍历递归 vdom 借助原生的插入子元素方法完成了真实 dom 的渲染
+
+
+
+### 总结
+
+完成了下图的分析：完成从 new Vue 到真实 DOM 的基本流程分析
+
+![image-20211017114750482](http://120.27.242.14:9900/uploads/upload_a5c0ea1a0731bf32100bd55db6e88363.png)
+
+
+
+
+
+## 关键词
+
+* *hydrating* ：服务端渲染标志位
+* *istanbul ignore if* 
+
+
+
+
+
+## 工具函数
 
 
 
@@ -1516,4 +1797,5 @@ export function normalizeChildren(children: any): ?Array<VNode> {
 * https://juejin.cn/book/6844733816460804104/section/6844733816549048333
 * https://ustbhuangyi.github.io/vue-analysis/
 * https://www.zhihu.com/question/46397274/answer/101193678
+* .... 
 
