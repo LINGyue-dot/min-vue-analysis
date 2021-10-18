@@ -1772,7 +1772,7 @@ export function appendChild (node: Node, child: Node) {
 
 从 new Vue 开始， Vue 函数会调用他原型上的 `_init` ， `_init` 函数中会做一系列的初始化即定义一些函数以及属性，后调用 `$mount` 函数开始挂载，此时 `$mount` 根据模式的不同 `runtime only` 或者 `runtime + complier` 分别进行不同操作，`runtime + complier` 多做了一个编译过程生成 `render` 函数，最终都调用 `mountComponent` 函数，该函数通过 `_render` 函数生成所需要的 vnode ，通过 `_update` 函数更新 dom 。而 `_render` 函数调用 `createElement` ，`createElement` 调用 `_createElement` 函数对其生成 vnode 。而 `_update` ，调用 `vm.__patch__` ，`vm.__patch__` 调用 `patch` ， `patch` 调用 `createPatchFunction` , `createPatchFunction`  调用 `createElm` ，`createElm` 也借助了`createChildren`  通过 vdom 创建真实 dom 最后借助 `insert` 函数插入到真实的 DOM
 
-
+![初始化 new Vue 到渲染成真实 DOM](http://120.27.242.14:9900/uploads/upload_f226a7f301d80073bdc56c458cafed84.png)
 
 
 
