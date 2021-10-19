@@ -2773,7 +2773,7 @@ export function mountComponent(
   }
 ```
 
-  `invokeInsertHook()` 会利用 `insert()`  函数将 ` insertedVnodeQueue 中的函数依次执行
+  `invokeInsertHook()` 会利用 `insert()`  函数将 ` insertedVnodeQueue ` 中的函数依次执行
 
 ```js
   function invokeInsertHook(vnode, queue, initial) {
@@ -2785,7 +2785,6 @@ export function mountComponent(
       }
     }
   }
-
 ```
 
 `src/core/vdom/create-component.js`  的 `componentVNodeHooks` 中
@@ -2909,6 +2908,14 @@ function callUpdatedHooks (queue) {
 
 
 
+#### 总结
+
+
+
+`beforeCreate()` --> 初始化状态（ `props data method watch computed ` ) --> `created()` --> `beforeMount()` --> 利用 `patch()` 函数渲染真实 DOM --> `mounted()` --> 中间由响应式 `watcher` 触发 `beforeUpdate() updated()` --> `beforeDestory()` -->  利用 `patch()` 函数递归销毁组件销毁挂载的属性 --> `destoryed()`
+
+由于初始化挂载和销毁都是借助 `patch()` 深度遍历子子组件进行的，所以 `mounted` `destory` 钩子函数的触发都是先子后父的
+
 ## 关键词
 
 * *hydrating* ：服务端渲染标志位
@@ -2917,6 +2924,8 @@ function callUpdatedHooks (queue) {
 * *Ctor* ：子组件的构造函数即继承于 Vue 的构造器 `Sub`
 * *vm.$vnode === vm._vnode.parent* ：即 *vm._vnode* 是自身的 vnode
 * *vm* ：即每个组件内部使用 Vue 子类创建的实例。即每个组件中获取的 `this` 。所有属性都是由 `Vue.extend` 继承而来。所以看起来全局就只有一个 `this` ???
+
+
 
 
 
