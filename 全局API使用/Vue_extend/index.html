@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+    <script src="https://cdn.jsdelivr.net/npm/vue@2.6.14"></script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="ex"></div>
+    <button id="btn">show</button>
+    <script>
+      const apps = document.querySelector('#app');
+      const btn = document.querySelector('#btn');
+
+      // Profile component
+      // create constructor
+      var Profile = Vue.extend({
+        template: '<p>{{firstName}} {{lastName}} aka {{alias}}</p>',
+        data: function () {
+          return {
+            firstName: 'Walter',
+            lastName: 'White',
+            alias: 'Heisenberg',
+          };
+        },
+      });
+
+      const app = new Vue({
+        el: '#app',
+        template: '<div>hello</div>',
+      });
+      btn.addEventListener('click', () => {
+        // 创建实例
+        const profiler = new Profile({
+          el: document.createElement('div'),
+        });
+        document.body.appendChild(profiler.$el);
+      });
+    </script>
+  </body>
+</html>
