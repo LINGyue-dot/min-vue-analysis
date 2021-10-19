@@ -2271,7 +2271,7 @@ export function initLifecycle(vm: Component) {
     if (isUndef(oldVnode)) {
       // empty mount (likely as component), create new root element
       isInitialPatch = true;
-      createElm(vnode, insertedVnodeQueue);
+      createElm(vnode, insertedVnodeQueue); 
     } else {
     }
   }
@@ -2297,6 +2297,7 @@ export function initLifecycle(vm: Component) {
     index
   ) {
     // 尝试创建子组件，如果是组件 vnode 那么就返回 true
+    // 这里的 insertedVnodeQueue 由于是深度遍历子组件的所以子组件再最前
     if (createComponent(vnode, insertedVnodeQueue, parentElm, refElm)) {
       return;
     }
@@ -2623,6 +2624,286 @@ vm.$options = {
 #### 总结
 
 合并配置的过程和渲染流程一起进行。先创建总的 Vue 实例在这过程中合并了用户手动创建时候传入的部分属性，例如 `Vue.mixin` 混入的函数等，后渲染组件时候将 Vue 子实例组件的配置和父实例配置合并并赋值给子实例的配置中
+
+
+
+
+
+### 生命周期
+
+所有的生命周期钩子函数都是通过 `callHook()` 触发
+
+`src/core/instance/lifecycle `  逻辑也非常简单，取出合并配置中将所有配置挂载到  `$options` 上的钩子函数  **一一执行**
+
+```js
+export function callHook(vm: Component, hook: string) {
+  // #7573 disable dep collection when invoking lifecycle hooks
+  pushTarget();
+  // 
+  const handlers = vm.$options[hook];
+  const info = `${hook} hook`;
+  if (handlers) {
+    for (let i = 0, j = handlers.length; i < j; i++) {
+      invokeWithErrorHandling(handlers[i], vm, null, vm, info);
+    }
+  }
+  if (vm._hasHookEvent) {
+    vm.$emit("hook:" + hook);
+  }
+  popTarget();
+}
+```
+
+过一遍生命周期钩子函数流程
+
+
+
+#### beforeCreate() && created()
+
+这俩函数触发就在 `_init` 函数中 
+
+`src/core/instance/init` 
+
+```js
+Vue.prototype._init = function (options?: Object) {
+  // ...
+  initLifecycle(vm)
+  initEvents(vm)
+  initRender(vm)
+  callHook(vm, 'beforeCreate')
+  initInjections(vm) // resolve injections before data/props
+  initState(vm) // 初始化 props data methods watch computed
+  initProvide(vm) // resolve provide after data/props
+  callHook(vm, 'created')
+  // ...
+}
+```
+
+​	`beforeCreate` 在初始化属性、数据、函数 `initState` 之前，所以就不能获取到 `data` , `method` , `props` ,  `watch` , `computed`  ， 同时这两钩子函数执行时候 DOM 还没渲染，所以也无法访问到 DOM
+
+
+
+​	
+
+#### beforeMount() && mounted()
+
+这2函数同样在 `src/core/instance/lifecycle.js` 中
+
+```js
+export function mountComponent(
+  vm: Component,
+  el: ?Element,
+  hydrating?: boolean
+): Component {
+  vm.$el = el;
+  callHook(vm, "beforeMount");
+  let updateComponent;
+  /* istanbul ignore if */
+  if (process.env.NODE_ENV !== "production" && config.performance && mark) {
+    updateComponent = () => {
+      vm._update(vnode, hydrating);
+    };
+  } else {
+    updateComponent = () => {
+      // 先调用 _render 生成 vNode 调用 _update 函数更新 dom
+      vm._update(vm._render(), hydrating);
+    };
+  }
+
+  // vm.$vnode 表示 Vue 实例的父虚拟节点，如果为 null 表示当前是根 Vue 实例
+  if (vm.$vnode == null) {
+    vm._isMounted = true;
+    callHook(vm, "mounted");
+  }
+  return vm;
+}
+```
+
+`beforeMount()` 就调用在 DOM 挂载之前，此时没有 VNode ，而在 DOM 渲染挂载之后再调用 `mounted` ，注意这里有个是外部 new Vue 还是内部 new Vue 的区别，如果是外部 new Vue 的时候那么渲染挂载完 DOM 后执行即上的 24 行
+
+如果是组件的  `mounted()` 在哪执行呢？
+
+我们在利用 `_render()` 函数之后需要调用 `_update()` 函数即 `patch()` 去渲染成真实 DOM ，这时会在渲染挂载 DOM 之后调用 `invokeInsertHook() ` 
+
+`src/core/vdom/patch.js`
+
+```js
+  function patch(oldVnode, vnode, hydrating, removeOnly) {
+    if (isUndef(vnode)) {
+      if (isDef(oldVnode)) invokeDestroyHook(oldVnode);
+      return;
+    }
+    let isInitialPatch = false;
+    const insertedVnodeQueue = [];
+
+    if (isUndef(oldVnode)) {
+      // 组件渲染
+      // empty mount (likely as component), create new root element
+      isInitialPatch = true;
+      createElm(vnode, insertedVnodeQueue);
+    } else {
+      const isRealElement = isDef(oldVnode.nodeType);
+      if (!isRealElement && sameVnode(oldVnode, vnode)) {
+        // patch existing root node
+        patchVnode(oldVnode, vnode, insertedVnodeQueue, null, null, removeOnly);
+      } else {
+        if (isRealElement) {
+          // init ：是真实 dom
+          // init ：通过 emptyNodeAt 将真实 dom 转换为 vnode 对象
+          oldVnode = emptyNodeAt(oldVnode);
+        }
+
+        // replacing existing element
+        const oldElm = oldVnode.elm;
+        const parentElm = nodeOps.parentNode(oldElm);
+
+        // create new node
+        createElm(
+          vnode,
+          insertedVnodeQueue,
+          // extremely rare edge case: do not insert if old element is in a
+          // leaving transition. Only happens when combining transition +
+          // keep-alive + HOCs. (#4590)
+          oldElm._leaveCb ? null : parentElm,
+          nodeOps.nextSibling(oldElm)
+        );
+          
+    invokeInsertHook(vnode, insertedVnodeQueue, isInitialPatch);
+    return vnode.elm;
+  }
+```
+
+  `invokeInsertHook()` 会利用 `insert()`  函数将 ` insertedVnodeQueue 中的函数依次执行
+
+```js
+  function invokeInsertHook(vnode, queue, initial) {
+    if (isTrue(initial) && isDef(vnode.parent)) {
+      vnode.parent.data.pendingInsert = queue;
+    } else {
+      for (let i = 0; i < queue.length; ++i) {
+        queue[i].data.hook.insert(queue[i]);
+      }
+    }
+  }
+
+```
+
+`src/core/vdom/create-component.js`  的 `componentVNodeHooks` 中
+
+```js
+const componentVNodeHooks = {
+  // ...
+  insert (vnode: MountedComponentVNode) {
+    const { context, componentInstance } = vnode
+    if (!componentInstance._isMounted) {
+      componentInstance._isMounted = true
+      callHook(componentInstance, 'mounted')
+    }
+    // ...
+  },
+}
+```
+
+由于 `insertedVnodeQueue` 的添加顺序是先子再父，所以同步渲染的子组件的触发 `mounted` 也是先子后父
+
+
+
+#### beforeUpdate() && updated()
+
+`beofreUpdate()` 执行就是在 `watcher` 中 ，并且只有在 `mounted` 之后才可调用
+
+```js
+export function mountComponent (
+  vm: Component,
+  el: ?Element,
+  hydrating?: boolean
+): Component {
+  // ...
+
+  new Watcher(vm, updateComponent, noop, {
+    before () {
+      if (vm._isMounted) { // 只有 mounted 之后才可调用
+        callHook(vm, 'beforeUpdate')
+      }
+    }
+  }, true /* isRenderWatcher */)
+  // ...
+}
+```
+
+`updated()` 触发涉及到数据的响应式 `src/core/observer/scheduler.js` 
+
+```js
+function flushSchedulerQueue () {
+  // ...
+  // 触发 updated()
+  callUpdatedHooks(updatedQueue)
+}
+
+function callUpdatedHooks (queue) {
+  let i = queue.length
+  while (i--) {
+    const watcher = queue[i]
+    const vm = watcher.vm
+    if (vm._watcher === watcher && vm._isMounted) {
+      callHook(vm, 'updated')
+    }
+  }
+}
+```
+
+
+
+#### beforeDestory() && destoryed()
+
+二者逻辑都在 `$destory` 中进行，主要进行了一系列销毁，后通过 `patch()` 递归销毁子组件，所以 `destoryed()` 调用的顺序也是先子后父
+
+```js
+  Vue.prototype.$destroy = function () {
+    const vm: Component = this;
+    if (vm._isBeingDestroyed) {
+      return;
+    }
+    callHook(vm, "beforeDestroy");
+    vm._isBeingDestroyed = true;
+    // remove self from parent
+    const parent = vm.$parent;
+    if (parent && !parent._isBeingDestroyed && !vm.$options.abstract) {
+      remove(parent.$children, vm);
+    }
+    // teardown watchers
+    if (vm._watcher) {
+      vm._watcher.teardown();
+    }
+    let i = vm._watchers.length;
+    while (i--) {
+      vm._watchers[i].teardown();
+    }
+    // remove reference from data ob
+    // frozen object may not have observer.
+    if (vm._data.__ob__) {
+      vm._data.__ob__.vmCount--;
+    }
+    // call the last hook...
+    vm._isDestroyed = true;
+    // invoke destroy hooks on current rendered tree
+    vm.__patch__(vm._vnode, null); // 递归销毁子组件
+    // fire destroyed hook
+    callHook(vm, "destroyed");
+    // turn off all instance listeners.
+    vm.$off();
+    // remove __vue__ reference
+    if (vm.$el) {
+      vm.$el.__vue__ = null;
+    }
+    // release circular reference (#6759)
+    if (vm.$vnode) {
+      vm.$vnode.parent = null;
+    }
+  };
+```
+
+
 
 
 
