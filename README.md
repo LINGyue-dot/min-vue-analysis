@@ -2318,6 +2318,316 @@ export function initLifecycle(vm: Component) {
 
 
 
+
+
+### 合并配置
+
+#### 几个问题
+
+1. 组件中的钩子函数是如何合并
+2.  `vm` 是什么的？是每个组件都拥有一个？
+3. 触发生命周期钩子函数谁来代理是全局 Vue /当前子组件 Vue 来统一触发还是遍历每个组件分别触发
+
+
+
+从上面分析可知，项目调用 new Vue 的情景有2种，一种是外部调用 new Vue 还有一种是内部创建组件时候自己调用 new Vue ，两者都会走 `_init` 函数并且都会先进行合并配置。
+
+```js
+Vue.prototype._init = function (options?: Object) {
+  // merge options
+  // 合并配置
+  if (options && options._isComponent) { // 组件
+    initInternalComponent(vm, options)
+  } else {
+    vm.$options = mergeOptions(
+      resolveConstructorOptions(vm.constructor),
+      options || {},
+      vm
+    )
+  }
+  // ...
+}
+```
+
+此时走的合并配置的逻辑就不同，分为外部调用和内部调用
+
+#### 外部调用 new Vue
+
+如下例子，外部调用主要涉及到的就是例如 `el` `Vue.mixin` 外部传入的属性，内部调用即内部在渲染 `childComp component` 时候调用 new Vue
+
+```js
+let childComp = {
+  template: '<div>{{msg}}</div>',
+  created() {
+    console.log('child created')
+  },
+  mounted() {
+    console.log('child mounted')
+  },
+  data() {
+    return {
+      msg: 'Hello Vue'
+    }
+  }
+}
+
+Vue.mixin({
+  created() {
+    console.log('parent created')
+  }
+})
+
+let app = new Vue({
+  el: '#app',
+  render: h => h(childComp)
+})
+```
+
+
+
+#### initGlobalAPI
+
+此时走 `mergeOptions ` 逻辑，其实就是将 `resolveConstructorOptions()` 函数的返回值和 `options` 做合并，
+
+ `vm.$options === vm.constructor.options === Vue.options` ???
+
+```js
+      vm.$options = mergeOptions(
+        resolveConstructorOptions(vm.constructor),
+        options || {},
+        vm
+      );
+```
+
+生成的 `vm.$options` 是什么样？在 `initGlobalAPI()` 的时候定义了这个值
+
+```js
+export function initGlobalAPI (Vue: GlobalAPI) {
+  // 定义了 vm.options 值
+  Vue.options = Object.create(null)
+  ASSET_TYPES.forEach(type => { // 创建了空对象属性
+    Vue.options[type + 's'] = Object.create(null)
+  })
+  // 挂载属性
+  Vue.options._base = Vue;
+  // 将部分内置组件扩展到 Vue.options.components 上
+  extend(Vue.options.components, builtInComponents);
+}
+
+// src/shared/constants
+export const ASSET_TYPES = [
+  'component',
+  'directive',
+  'filter'
+]
+```
+
+所以等价于创建了，即
+
+```js
+Vue.options[components] = {}
+Vue.options[directives] = {}
+Vue.options[filters] = {}
+```
+
+#### mergeOptions
+
+看看如何合并的
+
+```js
+export function mergeOptions(
+  parent: Object,
+  child: Object,
+  vm?: Component
+): Object {
+  // 格式化以及判断等操作...
+
+  // 递归将 child.extends 以及 child.mixins 合并到 parent ???
+  if (!child._base) {
+    if (child.extends) {
+      parent = mergeOptions(parent, child.extends, vm);
+    }
+    if (child.mixins) {
+      for (let i = 0, l = child.mixins.length; i < l; i++) {
+        parent = mergeOptions(parent, child.mixins[i], vm);
+      }
+    }
+  }
+
+  const options = {};
+  let key;
+  for (key in parent) { 
+    mergeField(key);
+  }
+  for (key in child) {
+    if (!hasOwn(parent, key)) {
+      // key 不是自身的属性而是 child 独有属性
+      mergeField(key);
+    }
+  }
+  function mergeField(key) {
+    const strat = strats[key] || defaultStrat;
+    options[key] = strat(parent[key], child[key], vm, key);
+  }
+  return options;
+}
+```
+
+这个 `starts` 在文件上方定义，用来容纳各类属性，例如生命周期函数，data 数据等
+
+```js
+// 合并生命周期函数，LIFECYCLE_HOOKS 即完整的暴露的生命周期函数
+LIFECYCLE_HOOKS.forEach((hook) => {
+  strats[hook] = mergeHook;
+});
+// 合并钩子函数
+function mergeHook(
+  parentVal: ?Array<Function>,
+  childVal: ?Function | ?Array<Function>
+): ?Array<Function> {
+  // 如果不存在 childVal 那么就返回 parentVal
+  // 如果存在 childVal，也存在 parentVal ，那么就拼接成数组
+  // 如果存在 childVal，不存在 parentVal，就返回 childVal 的数组形式
+  const res = childVal
+    ? parentVal
+      ? parentVal.concat(childVal)
+      : Array.isArray(childVal)
+      ? childVal
+      : [childVal]
+    : parentVal;
+  return res ? dedupeHooks(res) : res;
+}
+```
+
+最终合并之后如果 child 和 parent 定义同名的钩子函数，那么就会将这2同名钩子函数合并成数组
+
+那么合并过后最终的 `vm.$options` 如下
+
+```js
+vm.$options = {
+  components: { },
+  created: [
+    function created() {
+      console.log('parent created')
+    }
+  ],
+  directives: { },
+  filters: { },
+  _base: function Vue(options) {
+    // ...
+  },
+  el: "#app",
+  render: function (h) {
+    //...
+  }
+}
+```
+
+#### 内部调用（创建组件）
+
+内部调用即创建组件时候合并配置
+
+由于创建组件的构造函数是通过 `Vue.extend` 继承于 Vue 的，所以 new 时候必然先走 `Vue.extend` 中的逻辑，将自身属性与父属性合并后挂载到自身上面
+
+```js
+Vue.extend = function (extendOptions: Object): Function {
+  // ...
+  Sub.options = mergeOptions( // 会进行一次的 merge
+    Super.options, // 父的 options
+    extendOptions // 组件的 options
+  )
+
+  // ...
+  // keep a reference to the super options at extension time.
+  // later at instantiation we can check if Super's options have
+  // been updated.
+  Sub.superOptions = Super.options
+  Sub.extendOptions = extendOptions
+  Sub.sealedOptions = extend({}, Sub.options)
+
+  // ...
+  return Sub
+
+```
+
+后由于组件所以会走 `   initInternalComponent(vm, options)` 的逻辑，而 `   initInternalComponent(vm, options)` 就只做了一层属性的赋值
+
+```js
+// 组件实例的创建时候调用
+export function initInternalComponent(
+  vm: Component,
+  options: InternalComponentOptions
+) {
+  // vm.constructor 就是子组件构造函数 Sub 即 vm.constructor.options 就是 Sub.options
+  const opts = (vm.$options = Object.create(vm.constructor.options));
+  // doing this because it's faster than dynamic enumeration.
+  const parentVnode = options._parentVnode; // point ，右值是通过 createComponentInstanceForVnode 生成的
+  opts.parent = options.parent; // point 右值是通过 createComponentInstanceForVnode 生成的
+  // 后面将其合并到 $options
+  opts._parentVnode = parentVnode;
+
+  const vnodeComponentOptions = parentVnode.componentOptions;
+  opts.propsData = vnodeComponentOptions.propsData;
+  opts._parentListeners = vnodeComponentOptions.listeners;
+  opts._renderChildren = vnodeComponentOptions.children;
+  opts._componentTag = vnodeComponentOptions.tag;
+
+  if (options.render) {
+    opts.render = options.render;
+    opts.staticRenderFns = options.staticRenderFns;
+  }
+}
+```
+
+ 那么最终当前的 `vm.$options` 就是如下
+
+```js
+vm.$options = {
+  parent: Vue /*父Vue实例*/,
+  propsData: undefined,
+  _componentTag: undefined,
+  _parentVnode: VNode /*父VNode实例*/,
+  _renderChildren:undefined,
+  __proto__: {
+    components: { },
+    directives: { },
+    filters: { },
+    _base: function Vue(options) {
+        //...
+    },
+    _Ctor: {},
+    created: [
+      function created() {
+        console.log('parent created')
+      }, function created() {
+        console.log('child created')
+      }
+    ],
+    mounted: [
+      function mounted() {
+        console.log('child mounted')
+      }
+    ],
+    data() {
+       return {
+         msg: 'Hello Vue'
+       }
+    },
+    template: '<div>{{msg}}</div>'
+  }
+}
+```
+
+
+
+#### 总结
+
+合并配置的过程和渲染流程一起进行。先创建总的 Vue 实例在这过程中合并了用户手动创建时候传入的部分属性，例如 `Vue.mixin` 混入的函数等，后渲染组件时候将 Vue 子实例组件的配置和父实例配置合并并赋值给子实例的配置中
+
+
+
+
+
 ## 关键词
 
 * *hydrating* ：服务端渲染标志位
@@ -2325,6 +2635,7 @@ export function initLifecycle(vm: Component) {
 * *baseCtor* ：总的 Vue 的构造函数
 * *Ctor* ：子组件的构造函数即继承于 Vue 的构造器 `Sub`
 * *vm.$vnode === vm._vnode.parent* ：即 *vm._vnode* 是自身的 vnode
+* *vm* ：即每个组件内部使用 Vue 子类创建的实例。即每个组件中获取的 `this` 。所有属性都是由 `Vue.extend` 继承而来。所以看起来全局就只有一个 `this` ???
 
 
 
