@@ -855,6 +855,135 @@ function flushSchedulerQueue(){
 
 由于 `runtime only` 涉及到 webpack 的 `vue-loader` 插件所以不好分析，所以下面涉及纯前端的 runtime + complier 的 Vue 即 `srcipts/config.js` 中的 `web-full-esm-browser-prod` 模式
 
+## 添加调试
+
+这里直接将模式设置为 `runtime + complier` `Browser` 模式
+
+参考 https://segmentfault.com/a/1190000037554402 这篇文章现在目录下搭建一个 `webpack SPA` 项目
+
+后由于 Vue 源码的打包时候有添加路径别名以及全局变量值替换，所以这里也需要配置相同，最终 `webpack.json.js` 文件如下，注意此处的 SPA 应用的入口和出口是自定义的
+
+```js
+/*
+ * @Author: qianlong github:https://github.com/LINGyue-dot
+ * @Date: 2021-10-21 19:46:57
+ * @LastEditors: qianlong github:https://github.com/LINGyue-dot
+ * @LastEditTime: 2021-10-21 20:55:33
+ * @Description:
+ */
+
+const path = require("path");
+const webpack = require("webpack");
+const HtmlWebpackPlugin = require("html-webpack-plugin");
+const { CleanWebpackPlugin } = require("clean-webpack-plugin");
+
+function resolve(dir) {
+  return path.join(__dirname, "./", dir);
+}
+module.exports = {
+  mode: "development",
+  resolve: {
+    alias: {
+      vue: resolve("src/platforms/web/entry-runtime-with-compiler"),
+      compiler: resolve("src/compiler"),
+      core: resolve("src/core"),
+      shared: resolve("src/shared"),
+      web: resolve("src/platforms/web"),
+      weex: resolve("src/platforms/weex"),
+      server: resolve("src/server"),
+      sfc: resolve("src/sfc"),
+    },
+  },
+  entry: {
+    main: path.resolve(__dirname, "./debug-src/src/index.js"),
+  },
+  output: {
+    path: path.resolve(__dirname, "./debug-dist"),
+    filename: "[name].bundle.js",
+  },
+  plugins: [
+    new HtmlWebpackPlugin({
+      title: "webpack Boilerplate",
+      template: path.resolve(__dirname, "./debug-src/src/index.html"), // template file
+      filename: "index.html", // output file
+    }),
+    new CleanWebpackPlugin(),
+    new webpack.HotModuleReplacementPlugin(),
+    new webpack.DefinePlugin({
+      __WEEX__: false,
+      __WEEX_VERSION_: 1,
+      __VERSION__: 2.6,
+    }),
+  ],
+  module: {
+    rules: [
+      // JavaScript
+      {
+        test: /\.js$/,
+        exclude: /node_modules/,
+        use: ["babel-loader"],
+      },
+    ],
+  },
+  devServer: {
+    historyApiFallback: true,
+    static: {
+      directory: path.join(__dirname, "./debug-dist/src"),
+    },
+    open: true,
+    compress: true,
+    hot: true,
+    port: 8080,
+  },
+};
+
+```
+
+使用/创建 SPA 项目
+
+`/debug-src/src` 目录下 `/debug-src/src/index.html` 以及 `/debug-src/src/index.js`
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title><%= htmlWebpackPlugin.options.title %></title>
+  </head>
+  <body>
+    <div id="app"></div>
+  </body>
+</html>
+
+```
+
+```js
+/*
+ * @Author: qianlong github:https://github.com/LINGyue-dot
+ * @Date: 2021-10-21 19:46:27
+ * @LastEditors: qianlong github:https://github.com/LINGyue-dot
+ * @LastEditTime: 2021-10-21 20:42:42
+ * @Description:
+ */
+
+// 创建 p 节点
+
+import Vue from "../../src/platforms/web/entry-runtime-with-compiler";
+
+const app = new Vue({
+  template: `<div>
+  <hello-world></hello-world>
+  </div>`,
+});
+Vue.component("hello-world", {
+  template: "<div>hello world</div>",
+});
+app.$mount("#app");
+```
+
+
+
+这时候就可以直接调试 Vue 源码
+
 ## 类型检查
 
 Vue@2.x 使用的是 flow 进行类型检查
@@ -1821,15 +1950,11 @@ export function _createElement(
       vnode = createComponent(Ctor, data, context, children, tag);
     } else {
       // 如果是未注册的组件名就创建一个未知标签的 vnode 节点
-      // unknown or unlisted namespaced elements
-      // check at runtime because it may get assigned a namespace when its
-      // parent normalizes children
       // 生成 vnode
       vnode = new VNode(tag, data, children, undefined, undefined, context);
     }
   } else {
     // tag 为 component 类型
-    // direct component options / constructor
     vnode = createComponent(tag, data, context, children);
   }
 }
@@ -2916,6 +3041,110 @@ function callUpdatedHooks (queue) {
 `beforeCreate()` --> 初始化状态（ `props data method watch computed ` ) --> `created()` --> `beforeMount()` --> 利用 `patch()` 函数渲染真实 DOM --> `mounted()` --> 中间由响应式 `watcher` 触发 `beforeUpdate() updated()` --> `beforeDestory()` -->  利用 `patch()` 函数递归销毁组件销毁挂载的属性 --> `destoryed()`
 
 由于初始化挂载和销毁都是借助 `patch()` 深度遍历子子组件进行的，所以 `mounted` `destory` 钩子函数的触发都是先子后父的
+
+
+
+### 组件注册
+
+Vue 中组件的注册大致分为两种：全局注册和局部注册
+
+
+
+#### 全局注册
+
+我们可以使用如下方式来进行全局注册组件 
+
+```js
+Vue.component('global-component',{
+	template:'',
+    data:
+})
+```
+
+
+
+##### Vue.component() 
+
+函数定义在 `src/core/global-api/assets` ，就是全局 `component`  `filter` `directive` 注册的函数，如果是 `component` 的话将传入的对象转化为经过 `Vue.extend` 之后的实例对象，最后再挂载到 `Vue.options` 上
+
+```js
+export function initAssetRegisters(Vue: GlobalAPI) {
+  /**
+   * Create asset registration methods.
+   */
+  ASSET_TYPES.forEach((type) => {
+    Vue[type] = function (
+      id: string,
+      definition: Function | Object
+    ): Function | Object | void {
+      if (!definition) {
+        return this.options[type + "s"][id];
+      } else {
+        /* istanbul ignore if */
+        if (process.env.NODE_ENV !== "production" && type === "component") {
+          validateComponentName(id);
+        }
+        if (type === "component" && isPlainObject(definition)) {
+          definition.name = definition.name || id;
+          definition = this.options._base.extend(definition); // 将对象转为继承于 Vue 的构造函数
+        }
+        if (type === "directive" && typeof definition === "function") {
+          definition = { bind: definition, update: definition };
+        }
+        this.options[type + "s"][id] = definition; // 挂载到属性上
+        return definition;
+      }
+    };
+  });
+}
+// constants.js
+export const ASSET_TYPES = ["component", "directive", "filter"];
+```
+
+之前在 `mergeOptions` 合并配置时候，所有的实例的 `options` 都会继承全局父实例的 `Vue.options` ，所以全局的 `component` 也是如此被挂载到每个组件实例的 `options` 中
+
+```js
+Sub.options = mergeOptions(
+  Super.options,
+  extendOptions
+)
+```
+
+然后在创建 VNode 时候在 `_createElement` 的  ` isDef((Ctor = resolveAsset(context.$options, "components", tag)` 去取出 `context.$options` 中的 `tag` 的 `component` 对象
+
+```js
+  if (typeof tag === "string") {
+	// ...
+    } else if (
+      (!data || !data.pre) &&
+      isDef((Ctor = resolveAsset(context.$options, "components", tag))) // 向 $options 中取出 tag 的组件对象
+    ) {
+      // 如果是已经注册的组件名，创建一个组件类型的 vnode
+      // component
+      vnode = createComponent(Ctor, data, context, children, tag);
+    } else {
+		// ...
+    }
+  } else {
+    // tag 为 component 类型
+    // direct component options / constructor
+    vnode = createComponent(tag, data, context, children);
+  }
+```
+
+
+
+#### 局部注册
+
+
+
+
+
+
+
+
+
+
 
 ## 关键词
 
