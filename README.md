@@ -40,74 +40,86 @@
 
 
 
-## 响应式
+## 响应式系统
 
-### 2.x
+### api
 
-`defineProperty` 基本使用
+vue2.x 中使用 `defineProperty` Vue3.x 中使用 `proxy` 
 
-```js
-      // 模拟数据
-      let data = {
-        msg: '123',
-      };
-      // 模拟 vue 实例
-      let vm = {};
-      Object.defineProperty(vm, 'msg', {
-        get() {
-          return data.msg;
-        },
-        set(t) {
-          data.msg = t;
-          document.querySelector('#container').textContent = data.msg;
-        },
-      });
-      // 触发响应式
-      vm.msg = 'init';
-```
+### 简单实现
 
-`defineProperty` 使得多属性为响应式
+* 添加依赖收集类，避免未被使用的数据改变仍然发生视图更新
+
+对每个属性进行响应式处理即 `defineProperty` 设置 `get` `set` 函数，每个属性都有一个 Dep 实例，在 `get` 中将其当前的 wacther 添加到 dep 中，在 `set` 中去调用自己的 dep 去对之前推入的所有 watcher 进行通知更新
 
 ```js
-      // 模拟数据
-      let data = {
-        msg: '123',
-        age: 123,
-      };
-      // 模拟 vue 实例
-      let vm = {};
+// 依赖收集类
+class Dep {
+	constructor() {
+		this.subs = [];
+	}
 
-      Object.keys(data).forEach((key) => {
-        Object.defineProperty(vm, key, {
-          get() {
-            return data[key];
-          },
-          set(newVal) {
-            data[key] = newVal;
-            document.querySelector('#container').textContent = data[key];
-          },
-        });
-      });
-      // 触发响应式
-      vm.msg = 'init';
-```
+	addSub(item) {
+		this.subs.push(item);
+	}
 
-`代理` ：即我们本来只能通过 app._data.text 触发响应式，现在我们代理成通过 app.text 触发，本质就是代理提升，将原本需要给 app._data 属性代理直接代理到 app 上 
+	// 通知其全部的 watcher 更新
+	noticify() {
+		this.subs.forEach(item => item.update());
+	}
+}
 
-```js
-_proxy.call(this,options.data)
-function _proxy(data){
-    const that = this
-    Object.keys(data).forEach(key=>{
-        Object.defineProperty(that,key,{
-            get:(){
-                return that._data[key]
-            },
-            set:(val){
-                that._data[key] = val
-            }
-        })
-    })
+//
+class Watcher {
+	constructor() {
+		// 记录当前的 watcher
+		Dep.target = this;
+	}
+	//
+	update() {
+		// 视图更新
+		console.log("view update");
+		render();
+	}
+}
+
+// 封装，使其 obj 变为响应式
+function observer(obj) {
+	for (let item in obj) {
+		toReactive(obj, item, obj[item]);
+	}
+}
+
+// 添加 obj 的 key 变为响应式
+function toReactive(obj, key, value) {
+	// 每个属性都有 dep
+	let dep = new Dep();
+
+	Object.defineProperty(obj, key, {
+		get() {
+			// get 时候依赖收集将其当前的 watcher 推入自己对应的 dep
+			dep.addSub(Dep.target);
+			return value;
+		},
+
+		set(newVal) {
+			if (value === newVal) {
+				return;
+			}
+			value = newVal;
+			// set 时候进行更新
+			dep.noticify();
+		},
+	});
+}
+
+class Vue {
+	constructor(options) {
+		this._data = options.data;
+		observer(this._data);
+		new Watcher();
+		console.log("render");
+	}
 }
 ```
 
@@ -115,33 +127,7 @@ function _proxy(data){
 
 
 
-### 3.x
 
-`proxy` 
-
-```js
-      // vue data
-      let data = {
-        msg: '',
-        age: '',
-      };
-      // vue instance
-      // first proxy
-      let vm = new Proxy(data, {
-        // target 表示需要代理的对象，这里指的就是 data
-        get(target, key) {
-          return target[key];
-        },
-        set(target, key, newVal) {
-          target[key] = newVal;
-          console.log(newVal);
-          document.querySelector('#con').textContent = target[key];
-        },
-      });
-
-      // 触发更新
-      vm.msg = 'helllo';
-```
 
 
 
@@ -662,7 +648,7 @@ export default function updateChildren(parentElm, oldList, newList) {
 
 ## 整体流程
 
-<img src="http://120.27.242.14:9900/uploads/upload_62b31f7e27705827a7c841281f3dce30.png" alt="image-20211015152801313" style="zoom: 67%;" />
+<img src="http://120.27.242.14:9900/uploads/upload_62b31f7e27705827a7c841281f3dce30.png" alt="image-20211015152801313"  />
 
 ## 1. Vue.js 运行机制全局概览
 
@@ -1291,6 +1277,8 @@ export default Vue
 
 主要进行的就是合并配置、初始化生命周期、触发生命周期钩子函数、初始化事件、初始化渲染、初始化 data props computed watcher 等
 
+> initState() 中初始化了 wacther props methods data computed
+
 
 
 ### 实例挂载 $mount
@@ -1439,7 +1427,7 @@ export function mountComponent(
 
 #### _render()
 
-`src/instance/render` 
+`src/core/instance/render` 
 
 ```js
 Vue.prototype._render = function (): VNode {
@@ -3177,3 +3165,4 @@ Sub.options = mergeOptions(
 * https://www.zhihu.com/question/46397274/answer/101193678
 * .... 
 
+### 
