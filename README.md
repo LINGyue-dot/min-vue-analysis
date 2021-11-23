@@ -1376,7 +1376,7 @@ export function mountComponent(
       // 调用 _update 函数更新 dom
       vm._update(vnode, hydrating);
     };
-  } else 
+  } else {
     // init
     updateComponent = () => {
       // 先调用 _render 生成 vNode 调用 _update 函数更新 dom
@@ -1417,7 +1417,7 @@ export function mountComponent(
 
 本质上就进行了将 `runtime + complier` 的 template 转换为 `render ` 函数而 `runtime only` 模式下本身就存在 `render` 函数，这时初始化组件并启动监听器监听数据变化。
 
-
+ 
 
 ### _render
 
@@ -1888,7 +1888,9 @@ export function appendChild (node: Node, child: Node) {
 
 
 
-从 new Vue 开始， Vue 函数会调用他原型上的 `_init` ， `_init` 函数中会做一系列的初始化即定义一些函数以及属性，后调用 `$mount` 函数开始挂载，此时 `$mount` 根据模式的不同 `runtime only` 或者 `runtime + complier` 分别进行不同操作，`runtime + complier` 多做了一个编译过程生成 `render` 函数，最终都调用 `mountComponent` 函数，该函数通过 `_render` 函数生成所需要的 vnode ，通过 `_update` 函数更新 dom 。而 `_render` 函数调用 `createElement` ，`createElement` 调用 `_createElement` 函数对其生成 vnode 。而 `_update` ，调用 `vm.__patch__` ，`vm.__patch__` 调用 `patch` ， `patch` 调用 `createPatchFunction` , `createPatchFunction`  调用 `createElm` ，`createElm` 也借助了`createChildren`  通过 vdom 创建真实 dom 最后借助 `insert` 函数插入到真实的 DOM
+从 new Vue 开始， Vue 函数会调用他原型上的 `_init` ， `_init` 函数中会做一系列的初始化即定义一些函数以及属性，后调用 `$mount` 函数开始挂载，此时 `$mount` 根据模式的不同 `runtime only` 或者 `runtime + complier` 分别进行不同操作，`runtime + complier` 多做了一个编译过程生成 `render` 函数，最终都调用 `mountComponent` 函数，该函数通过 `_render` 函数生成所需要的 vnode ，通过 `_update` 函数更新 dom 。而 `_render` 函数调用 `createElement` ，`createElement` 调用 `_createElement` / `createComponent`函数对其生成 vnode 。而 `_update` ，调用 `vm.__patch__` ，`vm.__patch__` 调用 `patch` ， `patch` 调用 `createPatchFunction` , `createPatchFunction`  调用 `createElm` ，`createElm` 借助了`createChildren`  通过 vdom 创建真实 dom 最后借助 `insert` 函数插入到真实的 DOM
+
+本质上就是初始化函数以及属性，生成 vdom ，经过 diff 生成真实 dom 渲染到挂载的元素上
 
 ![初始化 new Vue 到渲染成真实 DOM](http://120.27.242.14:9900/uploads/upload_f226a7f301d80073bdc56c458cafed84.png)
 
@@ -1921,7 +1923,7 @@ var app = new Vue({
 ```js
 export function _createElement(
   context: Component, // 上下文环境
-  tag?: string | Class<Component> | Function | Object, // 标签
+  tag?: string | Class< Component> | Function | Object, // 标签
   data?: VNodeData, // vnode 的数据
   children?: any, // 子节点
   normalizationType?: number // 子节点规范类型，根据 render 函数是编译生成还是用户手写
@@ -2031,7 +2033,7 @@ Vue.options._base = Vue
   };
 ```
 
-`Vue.extend`  主要就是使用原型继承的方式构造了一个 Vue 的子类，并对其本身的属性进行了扩展与初始化 props 和 computed ，最后再对其进行了缓存。???
+`Vue.extend`  主要就是使用原型继承的方式构造了一个 Vue 的子类，并对其本身的属性进行了扩展与初始化 props 和 computed ，最后再对其进行了缓存。
 
 
 
@@ -2423,13 +2425,13 @@ export function initLifecycle(vm: Component) {
 组件的渲染过程，从初始化开始
 
 1. 编译过后，此时需要挂载 `$mount` ，调用 `mountComponent()` ，此时需要 vnode 和 渲染 vnode 即 `_render()`  `_update()`
-2. 而如果是组件的话执行 `render()` 生成 vnode 时候调用 `createElement()` `_createElement()` , `_createElement()` 会调用 `src/core/vdom/create-element.js` 中的`createComponent` <sup>**1**</sup>  来生成 vnode
-3. `createComponent` 作用是借助 Vue.extend 创建子实例的构造函数、合并用户传入的以及内置的部分生命周期函数、最后生成组件的 vnode
+2. 而如果是组件的话执行 `render()` 生成 vnode 时候调用 `createElement()` `_createElement()` , `_createElement()` 会调用 `src/core/vdom/create-element.js` 中的`createComponent` <sup>**1**</sup>  来生成 vnode 
+3. `createComponent` 作用是借助 **Vue.extend 创建子实例的构造函数**、合并用户传入的以及内置的部分生命周期函数、最后生成组件的 vnode
 4. 此时有了组件的 vnode 后，调用 `_update()` ，`_update()` 调用 `createElm()` 去创建真实 DOM 
 5. 而 `createElm()` 会尝试调用 `patch.js` 中的 `createComponent()` <sup>**2 **</sup>去创建组件实例， 如果创建成功那么所以逻辑便都在 `createComponent()` 中进行
 6. `createComponent()` 会先触发生命周期 init 的所有构造函数，其中便包括之前 `createComponent` <sup>**1**</sup> 合并的内置的 init 钩子函数
 7.  内置的 `init()` 函数会先实例化之前在创建 vnode 时候创建的`createComponent` <sup>**1**</sup> 的子类，实例化过程会合并部分属性到 `$options` 上
-8. 然后内置的 `init()` 函数会再调用 `child.$mount()` 函数即将子元素进行挂载操作，进行递归的以上步骤，知道不是组件而是基本 tag 
+8. 然后内置的 `init()` 函数会再调用 `child.$mount()` 函数即将子元素进行挂载操作，进行递归的以上步骤，z直到 不是组件而是基本 tag 
 
 
 
@@ -3122,9 +3124,11 @@ Sub.options = mergeOptions(
 
 
 
+即会将组件挂载到 `Vue.options.components` 上与 `keep-alive` `transiltion` 一致，而每个子类 vm 都是继承 Vue 而来，所以每个 vm 都有 components 属性
+
 #### 局部注册
 
-
+将组件直接添加到 vm.options.componets 而非全局的 Vue.options.components 上
 
 
 
@@ -3150,6 +3154,32 @@ Sub.options = mergeOptions(
 
 
 ## 工具函数
+
+
+
+
+
+
+
+
+
+
+
+## 几个 api
+
+
+
+### provide/inject 如何实现
+
+类似 react 的 context ，元素可向子孙元素传递数据无论层级多深
+
+使用 `provide` api 时候将其挂载到自身的 provide 属性上
+
+`inject` 查找就是递归向自己的 `vm.$parent` 组件实例上查找
+
+
+
+
 
 
 
