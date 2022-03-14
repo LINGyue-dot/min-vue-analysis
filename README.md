@@ -2,7 +2,7 @@
 
 ## 全流程
 
-![img](https://ustbhuangyi.github.io/vue-analysis/assets/mind.png)
+![img](https://typora-1300781048.cos.ap-beijing.myqcloud.com/img/mind.png)
 
 
 
@@ -316,7 +316,7 @@ emitter.emit('add', 'some food');
 }
 ```
 
-简单来说，每个 tag 都被转换为一下的数据结构
+简单来说，每个 tag 都被转换为一个特殊的数据结构
 
 ```js
 {
@@ -371,7 +371,7 @@ diff 算法首先遵循的规则
 
 diff 算法采用4指针，即新节点列表的头指针、尾指针，旧节点列表的头指针、尾指针
 
-![image-20211014183909032](http://120.27.242.14:9900/uploads/upload_ff124e71fb3ffac67f73d0e46d5326d4.png)
+![image-20211014183909032](https://typora-1300781048.cos.ap-beijing.myqcloud.com/img/upload_ff124e71fb3ffac67f73d0e46d5326d4.png)
 
 diff 的条件当旧前、旧后、新前、新后四个指针的有存在相等的情况时候这2指针各自移动
 
@@ -424,8 +424,6 @@ while(旧前<=旧后&&新前<=新后){
 <img src="C:\Users\16356\AppData\Roaming\Typora\typora-user-images\image-20211014185723553.png" alt="image-20211014185723553" style="zoom:50%;" />
 
 那么此时寻找旧中是否有新前的节点，如果有就将其插入到旧前之前，没有的话就新建节点插入到旧前之前
-
-#### 
 
 
 
@@ -648,7 +646,7 @@ export default function updateChildren(parentElm, oldList, newList) {
 
 ## 整体流程
 
-<img src="http://120.27.242.14:9900/uploads/upload_62b31f7e27705827a7c841281f3dce30.png" alt="image-20211015152801313"  />
+<img src="https://typora-1300781048.cos.ap-beijing.myqcloud.com/img/upload_62b31f7e27705827a7c841281f3dce30.png" alt="image-20211015152801313"  />
 
 ## 1. Vue.js 运行机制全局概览
 
@@ -722,7 +720,7 @@ nextTick 功能：在下次 DOM 更新循环结束之后执行延迟回调。在
 
 Vuejs 中分别使用 `Promise` `setTimout` 等方式创建微任务/宏任务并将 nextTick 中的回调函数放入，在同步函数全部执行完之后才会去执行。即 netxTick 本质上是在微任务/宏任务中执行，在 nextTick 的回调函数数组中原本就存在 ui 渲染函数，后面用户传入的函数都在其之后。也就是说用户传入的回调函数都在 UI 渲染函数之后**。JS 引擎遇到 UI 渲染函数时候会优先执行 UI 渲染函数后再执行微任务/宏任务**。前面这个结论是为什么呢？因为遇见渲染函数之后回去调用 GUI 线程去进行 dom 更新，此时 JS 线程会被冻结，只有 GUI 线程执行之后才会再执行 JS 代码
 
-<img src="http://120.27.242.14:9900/uploads/upload_84575205dc7decc8527316cfcfc5e464.png" alt="image-20211016103535428"  />
+<img src="https://typora-1300781048.cos.ap-beijing.myqcloud.com/img/upload_84575205dc7decc8527316cfcfc5e464.png" alt="image-20211016103535428"  />
 
 ```js
 let pending = false // 等待标志位
@@ -1884,7 +1882,7 @@ export function appendChild (node: Node, child: Node) {
 
 完成了下图的分析：完成从 new Vue 到真实 DOM 的基本流程分析
 
-![image-20211017114750482](http://120.27.242.14:9900/uploads/upload_a5c0ea1a0731bf32100bd55db6e88363.png)
+![image-20211017114750482](https://typora-1300781048.cos.ap-beijing.myqcloud.com/img/upload_a5c0ea1a0731bf32100bd55db6e88363.png)
 
 
 
@@ -1892,7 +1890,7 @@ export function appendChild (node: Node, child: Node) {
 
 本质上就是初始化函数以及属性，生成 vdom ，经过 diff 生成真实 dom 渲染到挂载的元素上
 
-![初始化 new Vue 到渲染成真实 DOM](http://120.27.242.14:9900/uploads/upload_f226a7f301d80073bdc56c458cafed84.png)
+![初始化 new Vue 到渲染成真实 DOM](https://typora-1300781048.cos.ap-beijing.myqcloud.com/img/upload_f226a7f301d80073bdc56c458cafed84.png)
 
 
 
@@ -3136,6 +3134,28 @@ Sub.options = mergeOptions(
 
 
 
+## 响应式
+
+
+
+### 前置
+
+Vue 2.x 最多只能进行监听无限深度的对象属性，但是无法监听新增/删除属性，以及数组通过下标进行变更，在此之前是利用 `$set` 来进行深度更新
+
+```js
+
+```
+
+
+
+​	
+
+
+
+
+
+
+
 
 
 ## 关键词
@@ -3146,6 +3166,7 @@ Sub.options = mergeOptions(
 * *Ctor* ：子组件的构造函数即继承于 Vue 的构造器 `Sub`
 * *vm.$vnode === vm._vnode.parent* ：即 *vm._vnode* 是自身的 vnode
 * *vm* ：即每个组件内部使用 Vue 子类创建的实例。即每个组件中获取的 `this` 。所有属性都是由 `Vue.extend` 继承而来。所以看起来全局就只有一个 `this` ???
+* 对象的 `__ob__` ：即对象的 observe 的实例
 
 
 
