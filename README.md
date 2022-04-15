@@ -54,6 +54,7 @@ vue2.x 中使用 `defineProperty` Vue3.x 中使用 `proxy`
 
 ```js
 // 依赖收集类
+// 每个属性都有一个 dep 实例
 class Dep {
 	constructor() {
 		this.subs = [];
@@ -69,7 +70,7 @@ class Dep {
 	}
 }
 
-//
+// 每个组件都有一个 wactcher 实例
 class Watcher {
 	constructor() {
 		// 记录当前的 watcher
@@ -3165,7 +3166,7 @@ Vue 2.x 最多只能进行监听无限深度的对象属性，但是无法监听
 * *baseCtor* ：总的 Vue 的构造函数
 * *Ctor* ：子组件的构造函数即继承于 Vue 的构造器 `Sub`
 * *vm.$vnode === vm._vnode.parent* ：即 *vm._vnode* 是自身的 vnode
-* *vm* ：即每个组件内部使用 Vue 子类创建的实例。即每个组件中获取的 `this` 。所有属性都是由 `Vue.extend` 继承而来。所以看起来全局就只有一个 `this` ???
+* *vm* ：即每个组件内部使用 Vue 子类创建的实例。即每个组件中获取的 `this` 。所有属性都是由 `Vue.extend` 继承而来。所以看起来全局就只有一个 `this` 
 * 对象的 `__ob__` ：即对象的 observe 的实例
 
 

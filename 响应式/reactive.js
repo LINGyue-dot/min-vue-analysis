@@ -2,7 +2,7 @@
  * @Author: qianlong github:https://github.com/LINGyue-dot
  * @Date: 2021-11-22 11:26:40
  * @LastEditors: qianlong github:https://github.com/LINGyue-dot
- * @LastEditTime: 2021-11-23 00:24:36
+ * @LastEditTime: 2022-03-14 20:36:08
  * @Description: 响应式
  */
 
@@ -27,7 +27,7 @@ class Dep {
 	}
 }
 
-//
+// 一个组件一个 watcher
 class Watcher {
 	constructor() {
 		// 记录当前的 watcher

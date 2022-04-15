@@ -17,6 +17,8 @@
 			// 模拟 vue 实例
 			let vm = {};
 
+			// 将对象上的属性绑定到
+			// Object.keys 只会遍历自身属性不会遍历原型链上属性
 			Object.keys(data).forEach(key => {
 				Object.defineProperty(vm, key, {
 					get() {
